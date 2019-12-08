@@ -250,6 +250,7 @@ extern int x_monitor_check_exclusive(void* p_node, uint32_t addr);
 extern int x_monitor_check_and_clean(int tid, uint32_t addr);
 #endif
 /* Store exclusive handling for AArch32 */
+extern int is_multi;
 static int do_strex(CPUARMState *env)
 {
     uint64_t val;
@@ -262,6 +263,10 @@ static int do_strex(CPUARMState *env)
 	uint32_t hash_entry;
 #endif
     //fprintf(stderr, "[do_strex]\tdo_strex\n");
+	
+	//if (!is_multi) {
+	//	return 0;
+	//}
     start_exclusive();
 
     if (env->exclusive_addr != env->exclusive_test) {
@@ -277,13 +282,15 @@ static int do_strex(CPUARMState *env)
     assert(extract64(env->exclusive_addr, 32, 32) == 0);
     addr = env->exclusive_addr;
 #ifdef PF_LLSC
-	target_ulong page_addr = addr & 0xfffff000;
-	target_mprotect(page_addr, 0x1000, PROT_READ|PROT_WRITE);
-	if (x_monitor_check_exclusive((void*)env->exclusive_node, addr) != 1) {
+		if (is_multi) {
+		target_ulong page_addr = addr & 0xfffff000;
+		target_mprotect(page_addr, 0x1000, PROT_READ|PROT_WRITE);
+		if (x_monitor_check_exclusive((void*)env->exclusive_node, addr) != 1) {
 #ifdef LLSC_LOG
-		fprintf(stderr, "thread %d strex fail! val %lx, oldval %lx, exclusive mark lost.\n", env->exclusive_tid, val, env->exclusive_val);
+			fprintf(stderr, "thread %d strex fail! val %lx, oldval %lx, exclusive mark lost.\n", env->exclusive_tid, val, env->exclusive_val);
 #endif
-		goto fail;
+			goto fail;
+		}
 	}
 #endif
 #ifdef HASH_LLSC
@@ -340,7 +347,9 @@ static int do_strex(CPUARMState *env)
 	fprintf(stderr, "thread %d strex suc! newval %lx, oldval %lx, addr %x\n", env->exclusive_tid, val, env->exclusive_val, addr);
 #endif
 #ifdef PF_LLSC
-	x_monitor_check_and_clean(env->exclusive_tid, addr);
+	if (is_multi) {
+		x_monitor_check_and_clean(env->exclusive_tid, addr);
+	}
 #endif
     switch (size) {
     case 0:

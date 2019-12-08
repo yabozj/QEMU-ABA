@@ -42,6 +42,7 @@
 //#define PICO_ST_LLSC
 #define QEMU_LLSC			/* gen EXCEPTION on STREX */
 //#define ATOMIC_LDREX		/* gen EXCEPTION on LDREX */
+//#define LL_COUNT
 
 #define ENABLE_ARCH_4T    arm_dc_feature(s, ARM_FEATURE_V4T)
 #define ENABLE_ARCH_5     arm_dc_feature(s, ARM_FEATURE_V5)
@@ -7490,7 +7491,10 @@ static void gen_load_exclusive(DisasContext *s, int rt, int rt2,
     TCGv_i32 tmp = tcg_temp_new_i32();
     TCGMemOp opc = size | MO_ALIGN | s->be_data;
 	//tcg_gen_stex_count(addr);
+#ifdef LL_COUNT
 	tcg_gen_ldex_count(addr);
+#endif 
+
 #ifdef HASH_LLSC
     TCGv_i32 mask1 = tcg_const_i32(0x0fffffff);
     TCGv_i32 mask2 = tcg_const_i32(0xa0000000);
