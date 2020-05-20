@@ -82,6 +82,12 @@ config IMX
 config STM32F2XX_SYSCFG
     bool
 
+config STM32F4XX_SYSCFG
+    bool
+
+config STM32F4XX_EXTI
+    bool
+
 config MIPS_ITU
     bool
 
@@ -116,5 +122,13 @@ config PVPANIC
 config AUX
     bool
     select I2C
+
+config UNIMP
+    bool
+
+config MAC_VIA
+    bool
+    select MOS6522
+    select ADB
 
 source macio/Kconfig

@@ -28,10 +28,14 @@
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
+#include "hw/irq.h"
 #include "hw/usb/ehci-regs.h"
 #include "hw/usb/hcd-ehci.h"
+#include "migration/vmstate.h"
 #include "trace.h"
 #include "qemu/error-report.h"
+#include "qemu/main-loop.h"
+#include "sysemu/runstate.h"
 
 #define FRAME_TIMER_FREQ 1000
 #define FRAME_TIMER_NS   (NANOSECONDS_PER_SECOND / FRAME_TIMER_FREQ)
@@ -1297,7 +1301,6 @@ static void ehci_execute_complete(EHCIQueue *q)
         /* should not be triggerable */
         fprintf(stderr, "USB invalid response %d\n", p->packet.status);
         g_assert_not_reached();
-        break;
     }
 
     /* TODO check 4.12 for splits */
@@ -1834,6 +1837,9 @@ static int ehci_state_fetchqtd(EHCIQueue *q)
             ehci_set_state(q->ehci, q->async, EST_EXECUTING);
             break;
         }
+    } else if (q->dev == NULL) {
+        ehci_trace_guest_bug(q->ehci, "no device attached to queue");
+        ehci_set_state(q->ehci, q->async, EST_HORIZONTALQH);
     } else {
         p = ehci_alloc_packet(q);
         p->qtdaddr = q->qtdaddr;
@@ -2098,9 +2104,7 @@ static void ehci_advance_state(EHCIState *ehci, int async)
 
         default:
             fprintf(stderr, "Bad state!\n");
-            again = -1;
             g_assert_not_reached();
-            break;
         }
 
         if (again < 0 || itd_count > 16) {

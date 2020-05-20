@@ -22,7 +22,6 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/boards.h"
 #include "qapi/error.h"
 #include "qapi/qmp/qerror.h"
 #include "qemu/error-report.h"
@@ -153,7 +152,7 @@ cryptodev_vhost_claim_chardev(CryptoDevBackendVhostUser *s,
     return chr;
 }
 
-static void cryptodev_vhost_user_event(void *opaque, int event)
+static void cryptodev_vhost_user_event(void *opaque, QEMUChrEvent event)
 {
     CryptoDevBackendVhostUser *s = opaque;
     CryptoDevBackend *b = CRYPTODEV_BACKEND(s);
@@ -171,6 +170,11 @@ static void cryptodev_vhost_user_event(void *opaque, int event)
     case CHR_EVENT_CLOSED:
         b->ready = false;
         cryptodev_vhost_user_stop(queues, s);
+        break;
+    case CHR_EVENT_BREAK:
+    case CHR_EVENT_MUX_IN:
+    case CHR_EVENT_MUX_OUT:
+        /* Ignore */
         break;
     }
 }

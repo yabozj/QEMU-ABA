@@ -11,7 +11,9 @@
  */
 
 #include "qemu/osdep.h"
+#include "hw/irq.h"
 #include "hw/ssi/ssi.h"
+#include "migration/vmstate.h"
 #include "qemu/module.h"
 #include "ui/console.h"
 
@@ -152,7 +154,7 @@ static void ads7846_realize(SSISlave *d, Error **errp)
 
     ads7846_int_update(s);
 
-    vmstate_register(NULL, -1, &vmstate_ads7846, s);
+    vmstate_register(NULL, VMSTATE_INSTANCE_ID_ANY, &vmstate_ads7846, s);
 }
 
 static void ads7846_class_init(ObjectClass *klass, void *data)

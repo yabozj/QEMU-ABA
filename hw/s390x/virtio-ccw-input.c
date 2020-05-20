@@ -9,6 +9,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "hw/qdev-properties.h"
 #include "hw/virtio/virtio.h"
 #include "qapi/error.h"
 #include "qemu/module.h"
@@ -37,7 +38,7 @@ static void virtio_ccw_input_class_init(ObjectClass *klass, void *data)
     VirtIOCCWDeviceClass *k = VIRTIO_CCW_DEVICE_CLASS(klass);
 
     k->realize = virtio_ccw_input_realize;
-    dc->props = virtio_ccw_input_properties;
+    device_class_set_props(dc, virtio_ccw_input_properties);
     set_bit(DEVICE_CATEGORY_INPUT, dc->categories);
 }
 

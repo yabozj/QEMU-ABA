@@ -16,7 +16,9 @@
  */
 
 #include "qemu/osdep.h"
+#include "hw/qdev-properties.h"
 #include "hw/usb/hcd-ehci.h"
+#include "migration/vmstate.h"
 #include "qemu/module.h"
 #include "qemu/range.h"
 
@@ -159,7 +161,7 @@ static void ehci_class_init(ObjectClass *klass, void *data)
     k->class_id = PCI_CLASS_SERIAL_USB;
     k->config_write = usb_ehci_pci_write_config;
     dc->vmsd = &vmstate_ehci_pci;
-    dc->props = ehci_pci_properties;
+    device_class_set_props(dc, ehci_pci_properties);
     dc->reset = usb_ehci_pci_reset;
 }
 

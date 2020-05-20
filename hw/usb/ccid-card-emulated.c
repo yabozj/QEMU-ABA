@@ -33,6 +33,7 @@
 #include "qemu/main-loop.h"
 #include "qemu/module.h"
 #include "ccid.h"
+#include "hw/qdev-properties.h"
 #include "qapi/error.h"
 
 #define DPRINTF(card, lvl, fmt, ...) \
@@ -602,7 +603,7 @@ static void emulated_class_initfn(ObjectClass *klass, void *data)
     cc->apdu_from_guest = emulated_apdu_from_guest;
     set_bit(DEVICE_CATEGORY_INPUT, dc->categories);
     dc->desc = "emulated smartcard";
-    dc->props = emulated_card_properties;
+    device_class_set_props(dc, emulated_card_properties);
 }
 
 static const TypeInfo emulated_card_info = {

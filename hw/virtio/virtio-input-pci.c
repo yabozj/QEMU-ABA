@@ -9,6 +9,7 @@
 #include "qemu/osdep.h"
 
 #include "virtio-pci.h"
+#include "hw/qdev-properties.h"
 #include "hw/virtio/virtio-input.h"
 #include "qemu/module.h"
 
@@ -59,7 +60,7 @@ static void virtio_input_pci_class_init(ObjectClass *klass, void *data)
     VirtioPCIClass *k = VIRTIO_PCI_CLASS(klass);
     PCIDeviceClass *pcidev_k = PCI_DEVICE_CLASS(klass);
 
-    dc->props = virtio_input_pci_properties;
+    device_class_set_props(dc, virtio_input_pci_properties);
     k->realize = virtio_input_pci_realize;
     set_bit(DEVICE_CATEGORY_INPUT, dc->categories);
 

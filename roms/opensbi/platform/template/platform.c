@@ -125,15 +125,6 @@ static void platform_ipi_send(u32 target_hart)
 }
 
 /*
- * Wait for target HART to acknowledge IPI.
- */
-static void platform_ipi_sync(u32 target_hart)
-{
-	/* Example if the generic CLINT driver is used */
-	clint_ipi_sync(target_hart);
-}
-
-/*
  * Clear IPI for a target HART.
  */
 static void platform_ipi_clear(u32 target_hart)
@@ -152,7 +143,7 @@ static int platform_timer_init(bool cold_boot)
 	/* Example if the generic CLINT driver is used */
 	if (cold_boot) {
 		ret = clint_cold_timer_init(PLATFORM_CLINT_ADDR,
-					    PLATFORM_HART_COUNT);
+					    PLATFORM_HART_COUNT, TRUE);
 		if (ret)
 			return ret;
 	}
@@ -216,15 +207,14 @@ const struct sbi_platform_operations platform_ops = {
 	.console_init		= platform_console_init,
 	.irqchip_init		= platform_irqchip_init,
 	.ipi_send		= platform_ipi_send,
-	.ipi_sync		= platform_ipi_sync,
 	.ipi_clear		= platform_ipi_clear,
 	.ipi_init		= platform_ipi_init,
 	.timer_value		= platform_timer_value,
 	.timer_event_stop	= platform_timer_event_stop,
 	.timer_event_start	= platform_timer_event_start,
 	.timer_init		= platform_timer_init,
-	.system_reboot		= platform_system_down,
-	.system_shutdown	= platform_system_down
+	.system_reboot		= platform_system_reboot,
+	.system_shutdown	= platform_system_shutdown
 };
 const struct sbi_platform platform = {
 	.opensbi_version	= OPENSBI_VERSION,

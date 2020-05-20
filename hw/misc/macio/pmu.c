@@ -30,14 +30,16 @@
 
 #include "qemu/osdep.h"
 #include "qemu-common.h"
-#include "hw/hw.h"
 #include "hw/ppc/mac.h"
+#include "hw/qdev-properties.h"
+#include "migration/vmstate.h"
 #include "hw/input/adb.h"
+#include "hw/irq.h"
 #include "hw/misc/mos6522.h"
 #include "hw/misc/macio/gpio.h"
 #include "hw/misc/macio/pmu.h"
 #include "qemu/timer.h"
-#include "sysemu/sysemu.h"
+#include "sysemu/runstate.h"
 #include "qemu/cutils.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
@@ -793,7 +795,7 @@ static void pmu_class_init(ObjectClass *oc, void *data)
     dc->realize = pmu_realize;
     dc->reset = pmu_reset;
     dc->vmsd = &vmstate_pmu;
-    dc->props = pmu_properties;
+    device_class_set_props(dc, pmu_properties);
     set_bit(DEVICE_CATEGORY_BRIDGE, dc->categories);
 }
 

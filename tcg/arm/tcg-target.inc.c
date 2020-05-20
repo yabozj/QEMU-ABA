@@ -23,7 +23,7 @@
  */
 
 #include "elf.h"
-#include "tcg-pool.inc.c"
+#include "../tcg-pool.inc.c"
 
 int arm_arch = __ARM_ARCH;
 
@@ -1131,7 +1131,7 @@ static TCGCond tcg_out_cmp2(TCGContext *s, const TCGArg *args,
 }
 
 #ifdef CONFIG_SOFTMMU
-#include "tcg-ldst.inc.c"
+#include "../tcg-ldst.inc.c"
 
 /* helper signature: helper_ret_ld_mmu(CPUState *env, target_ulong addr,
  *                                     int mmu_idx, uintptr_t ra)
@@ -1233,7 +1233,7 @@ QEMU_BUILD_BUG_ON(offsetof(CPUTLBDescFast, table) != 4);
    containing the addend of the tlb entry.  Clobbers R0, R1, R2, TMP.  */
 
 static TCGReg tcg_out_tlb_read(TCGContext *s, TCGReg addrlo, TCGReg addrhi,
-                               TCGMemOp opc, int mem_index, bool is_load)
+                               MemOp opc, int mem_index, bool is_load)
 {
     int cmp_off = (is_load ? offsetof(CPUTLBEntry, addr_read)
                    : offsetof(CPUTLBEntry, addr_write));
@@ -1348,7 +1348,7 @@ static bool tcg_out_qemu_ld_slow_path(TCGContext *s, TCGLabelQemuLdst *lb)
 {
     TCGReg argreg, datalo, datahi;
     TCGMemOpIdx oi = lb->oi;
-    TCGMemOp opc = get_memop(oi);
+    MemOp opc = get_memop(oi);
     void *func;
 
     if (!reloc_pc24(lb->label_ptr[0], s->code_ptr)) {
@@ -1412,7 +1412,7 @@ static bool tcg_out_qemu_st_slow_path(TCGContext *s, TCGLabelQemuLdst *lb)
 {
     TCGReg argreg, datalo, datahi;
     TCGMemOpIdx oi = lb->oi;
-    TCGMemOp opc = get_memop(oi);
+    MemOp opc = get_memop(oi);
 
     if (!reloc_pc24(lb->label_ptr[0], s->code_ptr)) {
         return false;
@@ -1453,11 +1453,11 @@ static bool tcg_out_qemu_st_slow_path(TCGContext *s, TCGLabelQemuLdst *lb)
 }
 #endif /* SOFTMMU */
 
-static inline void tcg_out_qemu_ld_index(TCGContext *s, TCGMemOp opc,
+static inline void tcg_out_qemu_ld_index(TCGContext *s, MemOp opc,
                                          TCGReg datalo, TCGReg datahi,
                                          TCGReg addrlo, TCGReg addend)
 {
-    TCGMemOp bswap = opc & MO_BSWAP;
+    MemOp bswap = opc & MO_BSWAP;
 
     switch (opc & MO_SSIZE) {
     case MO_UB:
@@ -1514,11 +1514,11 @@ static inline void tcg_out_qemu_ld_index(TCGContext *s, TCGMemOp opc,
     }
 }
 
-static inline void tcg_out_qemu_ld_direct(TCGContext *s, TCGMemOp opc,
+static inline void tcg_out_qemu_ld_direct(TCGContext *s, MemOp opc,
                                           TCGReg datalo, TCGReg datahi,
                                           TCGReg addrlo)
 {
-    TCGMemOp bswap = opc & MO_BSWAP;
+    MemOp bswap = opc & MO_BSWAP;
 
     switch (opc & MO_SSIZE) {
     case MO_UB:
@@ -1577,7 +1577,7 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is64)
 {
     TCGReg addrlo, datalo, datahi, addrhi __attribute__((unused));
     TCGMemOpIdx oi;
-    TCGMemOp opc;
+    MemOp opc;
 #ifdef CONFIG_SOFTMMU
     int mem_index;
     TCGReg addend;
@@ -1614,11 +1614,11 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is64)
 #endif
 }
 
-static inline void tcg_out_qemu_st_index(TCGContext *s, int cond, TCGMemOp opc,
+static inline void tcg_out_qemu_st_index(TCGContext *s, int cond, MemOp opc,
                                          TCGReg datalo, TCGReg datahi,
                                          TCGReg addrlo, TCGReg addend)
 {
-    TCGMemOp bswap = opc & MO_BSWAP;
+    MemOp bswap = opc & MO_BSWAP;
 
     switch (opc & MO_SIZE) {
     case MO_8:
@@ -1659,11 +1659,11 @@ static inline void tcg_out_qemu_st_index(TCGContext *s, int cond, TCGMemOp opc,
     }
 }
 
-static inline void tcg_out_qemu_st_direct(TCGContext *s, TCGMemOp opc,
+static inline void tcg_out_qemu_st_direct(TCGContext *s, MemOp opc,
                                           TCGReg datalo, TCGReg datahi,
                                           TCGReg addrlo)
 {
-    TCGMemOp bswap = opc & MO_BSWAP;
+    MemOp bswap = opc & MO_BSWAP;
 
     switch (opc & MO_SIZE) {
     case MO_8:
@@ -1708,7 +1708,7 @@ static void tcg_out_qemu_st(TCGContext *s, const TCGArg *args, bool is64)
 {
     TCGReg addrlo, datalo, datahi, addrhi __attribute__((unused));
     TCGMemOpIdx oi;
-    TCGMemOp opc;
+    MemOp opc;
 #ifdef CONFIG_SOFTMMU
     int mem_index;
     TCGReg addend;
@@ -1745,7 +1745,7 @@ static void tcg_out_qemu_st(TCGContext *s, const TCGArg *args, bool is64)
 #endif
 }
 
-static tcg_insn_unit *tb_ret_addr;
+static void tcg_out_epilogue(TCGContext *s);
 
 static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
                 const TCGArg *args, const int *const_args)
@@ -1755,14 +1755,8 @@ static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
 
     switch (opc) {
     case INDEX_op_exit_tb:
-        /* Reuse the zeroing that exists for goto_ptr.  */
-        a0 = args[0];
-        if (a0 == 0) {
-            tcg_out_goto(s, COND_AL, s->code_gen_epilogue);
-        } else {
-            tcg_out_movi32(s, COND_AL, TCG_REG_R0, args[0]);
-            tcg_out_goto(s, COND_AL, tb_ret_addr);
-        }
+        tcg_out_movi(s, TCG_TYPE_PTR, TCG_REG_R0, args[0]);
+        tcg_out_epilogue(s);
         break;
     case INDEX_op_goto_tb:
         {
@@ -2284,19 +2278,17 @@ static void tcg_out_nop_fill(tcg_insn_unit *p, int count)
       + TCG_TARGET_STACK_ALIGN - 1) \
      & -TCG_TARGET_STACK_ALIGN)
 
+#define STACK_ADDEND  (FRAME_SIZE - PUSH_SIZE)
+
 static void tcg_target_qemu_prologue(TCGContext *s)
 {
-    int stack_addend;
-
     /* Calling convention requires us to save r4-r11 and lr.  */
     /* stmdb sp!, { r4 - r11, lr } */
     tcg_out32(s, (COND_AL << 28) | 0x092d4ff0);
 
     /* Reserve callee argument and tcg temp space.  */
-    stack_addend = FRAME_SIZE - PUSH_SIZE;
-
     tcg_out_dat_rI(s, COND_AL, ARITH_SUB, TCG_REG_CALL_STACK,
-                   TCG_REG_CALL_STACK, stack_addend, 1);
+                   TCG_REG_CALL_STACK, STACK_ADDEND, 1);
     tcg_set_frame(s, TCG_REG_CALL_STACK, TCG_STATIC_CALL_ARGS_SIZE,
                   CPU_TEMP_BUF_NLONGS * sizeof(long));
 
@@ -2310,11 +2302,14 @@ static void tcg_target_qemu_prologue(TCGContext *s)
      */
     s->code_gen_epilogue = s->code_ptr;
     tcg_out_movi(s, TCG_TYPE_PTR, TCG_REG_R0, 0);
+    tcg_out_epilogue(s);
+}
 
-    /* TB epilogue */
-    tb_ret_addr = s->code_ptr;
+static void tcg_out_epilogue(TCGContext *s)
+{
+    /* Release local stack frame.  */
     tcg_out_dat_rI(s, COND_AL, ARITH_ADD, TCG_REG_CALL_STACK,
-                   TCG_REG_CALL_STACK, stack_addend, 1);
+                   TCG_REG_CALL_STACK, STACK_ADDEND, 1);
 
     /* ldmia sp!, { r4 - r11, pc } */
     tcg_out32(s, (COND_AL << 28) | 0x08bd8ff0);

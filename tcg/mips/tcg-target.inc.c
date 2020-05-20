@@ -404,11 +404,11 @@ typedef enum {
 
     /* MIPS r6 introduced names for weaker variants of SYNC.  These are
        backward compatible to previous architecture revisions.  */
-    OPC_SYNC_WMB     = OPC_SYNC | 0x04 << 5,
-    OPC_SYNC_MB      = OPC_SYNC | 0x10 << 5,
-    OPC_SYNC_ACQUIRE = OPC_SYNC | 0x11 << 5,
-    OPC_SYNC_RELEASE = OPC_SYNC | 0x12 << 5,
-    OPC_SYNC_RMB     = OPC_SYNC | 0x13 << 5,
+    OPC_SYNC_WMB     = OPC_SYNC | 0x04 << 6,
+    OPC_SYNC_MB      = OPC_SYNC | 0x10 << 6,
+    OPC_SYNC_ACQUIRE = OPC_SYNC | 0x11 << 6,
+    OPC_SYNC_RELEASE = OPC_SYNC | 0x12 << 6,
+    OPC_SYNC_RMB     = OPC_SYNC | 0x13 << 6,
 
     /* Aliases for convenience.  */
     ALIAS_PADD     = sizeof(void *) == 4 ? OPC_ADDU : OPC_DADDU,
@@ -1107,7 +1107,7 @@ static void tcg_out_call(TCGContext *s, tcg_insn_unit *arg)
 }
 
 #if defined(CONFIG_SOFTMMU)
-#include "tcg-ldst.inc.c"
+#include "../tcg-ldst.inc.c"
 
 static void * const qemu_ld_helpers[16] = {
     [MO_UB]   = helper_ret_ldub_mmu,
@@ -1215,7 +1215,7 @@ static void tcg_out_tlb_load(TCGContext *s, TCGReg base, TCGReg addrl,
                              TCGReg addrh, TCGMemOpIdx oi,
                              tcg_insn_unit *label_ptr[2], bool is_load)
 {
-    TCGMemOp opc = get_memop(oi);
+    MemOp opc = get_memop(oi);
     unsigned s_bits = opc & MO_SIZE;
     unsigned a_bits = get_alignment_bits(opc);
     int mem_index = get_mmuidx(oi);
@@ -1313,7 +1313,7 @@ static void add_qemu_ldst_label(TCGContext *s, int is_ld, TCGMemOpIdx oi,
 static bool tcg_out_qemu_ld_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
 {
     TCGMemOpIdx oi = l->oi;
-    TCGMemOp opc = get_memop(oi);
+    MemOp opc = get_memop(oi);
     TCGReg v0;
     int i;
 
@@ -1363,8 +1363,8 @@ static bool tcg_out_qemu_ld_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
 static bool tcg_out_qemu_st_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
 {
     TCGMemOpIdx oi = l->oi;
-    TCGMemOp opc = get_memop(oi);
-    TCGMemOp s_bits = opc & MO_SIZE;
+    MemOp opc = get_memop(oi);
+    MemOp s_bits = opc & MO_SIZE;
     int i;
 
     /* resolve label address */
@@ -1413,7 +1413,7 @@ static bool tcg_out_qemu_st_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
 #endif
 
 static void tcg_out_qemu_ld_direct(TCGContext *s, TCGReg lo, TCGReg hi,
-                                   TCGReg base, TCGMemOp opc, bool is_64)
+                                   TCGReg base, MemOp opc, bool is_64)
 {
     switch (opc & (MO_SSIZE | MO_BSWAP)) {
     case MO_UB:
@@ -1521,7 +1521,7 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is_64)
     TCGReg addr_regl, addr_regh __attribute__((unused));
     TCGReg data_regl, data_regh;
     TCGMemOpIdx oi;
-    TCGMemOp opc;
+    MemOp opc;
 #if defined(CONFIG_SOFTMMU)
     tcg_insn_unit *label_ptr[2];
 #endif
@@ -1558,7 +1558,7 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is_64)
 }
 
 static void tcg_out_qemu_st_direct(TCGContext *s, TCGReg lo, TCGReg hi,
-                                   TCGReg base, TCGMemOp opc)
+                                   TCGReg base, MemOp opc)
 {
     /* Don't clutter the code below with checks to avoid bswapping ZERO.  */
     if ((lo | hi) == 0) {
@@ -1624,7 +1624,7 @@ static void tcg_out_qemu_st(TCGContext *s, const TCGArg *args, bool is_64)
     TCGReg addr_regl, addr_regh __attribute__((unused));
     TCGReg data_regl, data_regh;
     TCGMemOpIdx oi;
-    TCGMemOp opc;
+    MemOp opc;
 #if defined(CONFIG_SOFTMMU)
     tcg_insn_unit *label_ptr[2];
 #endif

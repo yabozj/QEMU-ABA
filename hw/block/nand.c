@@ -20,9 +20,10 @@
 
 #include "qemu/osdep.h"
 #include "hw/hw.h"
+#include "hw/qdev-properties.h"
 #include "hw/block/flash.h"
 #include "sysemu/block-backend.h"
-#include "hw/qdev.h"
+#include "migration/vmstate.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "qemu/module.h"
@@ -447,7 +448,7 @@ static void nand_class_init(ObjectClass *klass, void *data)
     dc->realize = nand_realize;
     dc->reset = nand_reset;
     dc->vmsd = &vmstate_nand;
-    dc->props = nand_properties;
+    device_class_set_props(dc, nand_properties);
 }
 
 static const TypeInfo nand_info = {

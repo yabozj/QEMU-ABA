@@ -124,12 +124,11 @@ int qcow2_grow_l1_table(BlockDriverState *bs, uint64_t min_size,
 #endif
 
     new_l1_size2 = sizeof(uint64_t) * new_l1_size;
-    new_l1_table = qemu_try_blockalign(bs->file->bs,
-                                       ROUND_UP(new_l1_size2, 512));
+    new_l1_table = qemu_try_blockalign(bs->file->bs, new_l1_size2);
     if (new_l1_table == NULL) {
         return -ENOMEM;
     }
-    memset(new_l1_table, 0, ROUND_UP(new_l1_size2, 512));
+    memset(new_l1_table, 0, new_l1_size2);
 
     if (s->l1_size) {
         memcpy(new_l1_table, s->l1_table, s->l1_size * sizeof(uint64_t));
@@ -217,26 +216,31 @@ static int l2_load(BlockDriverState *bs, uint64_t offset,
 }
 
 /*
- * Writes one sector of the L1 table to the disk (can't update single entries
- * and we really don't want bdrv_pread to perform a read-modify-write)
+ * Writes an L1 entry to disk (note that depending on the alignment
+ * requirements this function may write more that just one entry in
+ * order to prevent bdrv_pwrite from performing a read-modify-write)
  */
-#define L1_ENTRIES_PER_SECTOR (512 / 8)
 int qcow2_write_l1_entry(BlockDriverState *bs, int l1_index)
 {
     BDRVQcow2State *s = bs->opaque;
-    uint64_t buf[L1_ENTRIES_PER_SECTOR] = { 0 };
     int l1_start_index;
     int i, ret;
+    int bufsize = MAX(sizeof(uint64_t),
+                      MIN(bs->file->bs->bl.request_alignment, s->cluster_size));
+    int nentries = bufsize / sizeof(uint64_t);
+    g_autofree uint64_t *buf = g_try_new0(uint64_t, nentries);
 
-    l1_start_index = l1_index & ~(L1_ENTRIES_PER_SECTOR - 1);
-    for (i = 0; i < L1_ENTRIES_PER_SECTOR && l1_start_index + i < s->l1_size;
-         i++)
-    {
+    if (buf == NULL) {
+        return -ENOMEM;
+    }
+
+    l1_start_index = QEMU_ALIGN_DOWN(l1_index, nentries);
+    for (i = 0; i < MIN(nentries, s->l1_size - l1_start_index); i++) {
         buf[i] = cpu_to_be64(s->l1_table[l1_start_index + i]);
     }
 
     ret = qcow2_pre_write_overlap_check(bs, QCOW2_OL_ACTIVE_L1,
-            s->l1_table_offset + 8 * l1_start_index, sizeof(buf), false);
+            s->l1_table_offset + 8 * l1_start_index, bufsize, false);
     if (ret < 0) {
         return ret;
     }
@@ -244,7 +248,7 @@ int qcow2_write_l1_entry(BlockDriverState *bs, int l1_index)
     BLKDBG_EVENT(bs->file, BLKDBG_L1_UPDATE);
     ret = bdrv_pwrite_sync(bs->file,
                            s->l1_table_offset + 8 * l1_start_index,
-                           buf, sizeof(buf));
+                           buf, bufsize);
     if (ret < 0) {
         return ret;
     }
@@ -452,34 +456,14 @@ static int coroutine_fn do_perform_cow_read(BlockDriverState *bs,
      * interface.  This avoids double I/O throttling and request tracking,
      * which can lead to deadlock when block layer copy-on-read is enabled.
      */
-    ret = bs->drv->bdrv_co_preadv(bs, src_cluster_offset + offset_in_cluster,
-                                  qiov->size, qiov, 0);
+    ret = bs->drv->bdrv_co_preadv_part(bs,
+                                       src_cluster_offset + offset_in_cluster,
+                                       qiov->size, qiov, 0, 0);
     if (ret < 0) {
         return ret;
     }
 
     return 0;
-}
-
-static bool coroutine_fn do_perform_cow_encrypt(BlockDriverState *bs,
-                                                uint64_t src_cluster_offset,
-                                                uint64_t cluster_offset,
-                                                unsigned offset_in_cluster,
-                                                uint8_t *buffer,
-                                                unsigned bytes)
-{
-    if (bytes && bs->encrypted) {
-        BDRVQcow2State *s = bs->opaque;
-        assert((offset_in_cluster & ~BDRV_SECTOR_MASK) == 0);
-        assert((bytes & ~BDRV_SECTOR_MASK) == 0);
-        assert(s->crypto);
-        if (qcow2_co_encrypt(bs, cluster_offset,
-                             src_cluster_offset + offset_in_cluster,
-                             buffer, bytes) < 0) {
-            return false;
-        }
-    }
-    return true;
 }
 
 static int coroutine_fn do_perform_cow_write(BlockDriverState *bs,
@@ -797,6 +781,10 @@ int qcow2_alloc_compressed_cluster_offset(BlockDriverState *bs,
         (cluster_offset + compressed_size - 1) / QCOW2_COMPRESSED_SECTOR_SIZE -
         (cluster_offset / QCOW2_COMPRESSED_SECTOR_SIZE);
 
+    /* The offset and size must fit in their fields of the L2 table entry */
+    assert((cluster_offset & s->cluster_offset_mask) == cluster_offset);
+    assert((nb_csectors & s->csize_mask) == nb_csectors);
+
     cluster_offset |= QCOW_OFLAG_COMPRESSED |
                       ((uint64_t)nb_csectors << s->csize_shift);
 
@@ -828,7 +816,6 @@ static int perform_cow(BlockDriverState *bs, QCowL2Meta *m)
     assert(start->nb_bytes <= UINT_MAX - end->nb_bytes);
     assert(start->nb_bytes + end->nb_bytes <= UINT_MAX - data_bytes);
     assert(start->offset + start->nb_bytes <= end->offset);
-    assert(!m->data_qiov || m->data_qiov->size == data_bytes);
 
     if ((start->nb_bytes == 0 && end->nb_bytes == 0) || m->skip_cow) {
         return 0;
@@ -860,7 +847,11 @@ static int perform_cow(BlockDriverState *bs, QCowL2Meta *m)
     /* The part of the buffer where the end region is located */
     end_buffer = start_buffer + buffer_size - end->nb_bytes;
 
-    qemu_iovec_init(&qiov, 2 + (m->data_qiov ? m->data_qiov->niov : 0));
+    qemu_iovec_init(&qiov, 2 + (m->data_qiov ?
+                                qemu_iovec_subvec_niov(m->data_qiov,
+                                                       m->data_qiov_offset,
+                                                       data_bytes)
+                                : 0));
 
     qemu_co_mutex_unlock(&s->lock);
     /* First we read the existing data from both COW regions. We
@@ -886,12 +877,19 @@ static int perform_cow(BlockDriverState *bs, QCowL2Meta *m)
 
     /* Encrypt the data if necessary before writing it */
     if (bs->encrypted) {
-        if (!do_perform_cow_encrypt(bs, m->offset, m->alloc_offset,
-                                    start->offset, start_buffer,
-                                    start->nb_bytes) ||
-            !do_perform_cow_encrypt(bs, m->offset, m->alloc_offset,
-                                    end->offset, end_buffer, end->nb_bytes)) {
-            ret = -EIO;
+        ret = qcow2_co_encrypt(bs,
+                               m->alloc_offset + start->offset,
+                               m->offset + start->offset,
+                               start_buffer, start->nb_bytes);
+        if (ret < 0) {
+            goto fail;
+        }
+
+        ret = qcow2_co_encrypt(bs,
+                               m->alloc_offset + end->offset,
+                               m->offset + end->offset,
+                               end_buffer, end->nb_bytes);
+        if (ret < 0) {
             goto fail;
         }
     }
@@ -903,7 +901,7 @@ static int perform_cow(BlockDriverState *bs, QCowL2Meta *m)
         if (start->nb_bytes) {
             qemu_iovec_add(&qiov, start_buffer, start->nb_bytes);
         }
-        qemu_iovec_concat(&qiov, m->data_qiov, 0, data_bytes);
+        qemu_iovec_concat(&qiov, m->data_qiov, m->data_qiov_offset, data_bytes);
         if (end->nb_bytes) {
             qemu_iovec_add(&qiov, end_buffer, end->nb_bytes);
         }
@@ -982,6 +980,7 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
 
     assert(l2_index + m->nb_clusters <= s->l2_slice_size);
     for (i = 0; i < m->nb_clusters; i++) {
+        uint64_t offset = cluster_offset + (i << s->cluster_bits);
         /* if two concurrent writes happen to the same unallocated cluster
          * each write allocates separate cluster and writes data concurrently.
          * The first one to complete updates l2 table with pointer to its
@@ -992,8 +991,10 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
             old_cluster[j++] = l2_slice[l2_index + i];
         }
 
-        l2_slice[l2_index + i] = cpu_to_be64((cluster_offset +
-                    (i << s->cluster_bits)) | QCOW_OFLAG_COPIED);
+        /* The offset must fit in the offset field of the L2 table entry */
+        assert((offset & L2E_OFFSET_MASK) == offset);
+
+        l2_slice[l2_index + i] = cpu_to_be64(offset | QCOW_OFLAG_COPIED);
      }
 
 
@@ -1025,8 +1026,11 @@ err:
 void qcow2_alloc_cluster_abort(BlockDriverState *bs, QCowL2Meta *m)
 {
     BDRVQcow2State *s = bs->opaque;
-    qcow2_free_clusters(bs, m->alloc_offset, m->nb_clusters << s->cluster_bits,
-                        QCOW2_DISCARD_NEVER);
+    if (!has_data_file(bs) && !m->keep_old_clusters) {
+        qcow2_free_clusters(bs, m->alloc_offset,
+                            m->nb_clusters << s->cluster_bits,
+                            QCOW2_DISCARD_NEVER);
+    }
 }
 
 /*
@@ -1340,6 +1344,9 @@ static int handle_alloc(BlockDriverState *bs, uint64_t guest_offset,
     nb_clusters = MIN(nb_clusters, s->l2_slice_size - l2_index);
     assert(nb_clusters <= INT_MAX);
 
+    /* Limit total allocation byte count to INT_MAX */
+    nb_clusters = MIN(nb_clusters, INT_MAX >> s->cluster_bits);
+
     /* Find L2 entry for the first involved cluster */
     ret = get_cluster_table(bs, guest_offset, &l2_slice, &l2_index);
     if (ret < 0) {
@@ -1347,13 +1354,7 @@ static int handle_alloc(BlockDriverState *bs, uint64_t guest_offset,
     }
 
     entry = be64_to_cpu(l2_slice[l2_index]);
-
-    /* For the moment, overwrite compressed clusters one by one */
-    if (entry & QCOW_OFLAG_COMPRESSED) {
-        nb_clusters = 1;
-    } else {
-        nb_clusters = count_cow_clusters(bs, nb_clusters, l2_slice, l2_index);
-    }
+    nb_clusters = count_cow_clusters(bs, nb_clusters, l2_slice, l2_index);
 
     /* This function is only called when there were no non-COW clusters, so if
      * we can't find any unallocated or COW clusters either, something is
@@ -1428,7 +1429,7 @@ static int handle_alloc(BlockDriverState *bs, uint64_t guest_offset,
      * request actually writes to (excluding COW at the end)
      */
     uint64_t requested_bytes = *bytes + offset_into_cluster(s, guest_offset);
-    int avail_bytes = MIN(INT_MAX, nb_clusters << s->cluster_bits);
+    int avail_bytes = nb_clusters << s->cluster_bits;
     int nb_bytes = MIN(requested_bytes, avail_bytes);
     QCowL2Meta *old_m = *m;
 
@@ -1925,6 +1926,9 @@ static int expand_zero_clusters_in_l1(BlockDriverState *bs, uint64_t *l1_table,
                         ret = offset;
                         goto fail;
                     }
+
+                    /* The offset must fit in the offset field */
+                    assert((offset & L2E_OFFSET_MASK) == offset);
 
                     if (l2_refcount > 1) {
                         /* For shared L2 tables, set the refcount accordingly

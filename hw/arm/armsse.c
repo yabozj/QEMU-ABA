@@ -16,9 +16,11 @@
 #include "qapi/error.h"
 #include "trace.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
 #include "hw/registerfields.h"
 #include "hw/arm/armsse.h"
 #include "hw/arm/boot.h"
+#include "hw/irq.h"
 
 /* Format of the System Information block SYS_CONFIG register */
 typedef enum SysConfigFormat {
@@ -1281,7 +1283,7 @@ static void armsse_class_init(ObjectClass *klass, void *data)
 
     dc->realize = armsse_realize;
     dc->vmsd = &armsse_vmstate;
-    dc->props = info->props;
+    device_class_set_props(dc, info->props);
     dc->reset = armsse_reset;
     iic->check = armsse_idau_check;
     asc->info = info;

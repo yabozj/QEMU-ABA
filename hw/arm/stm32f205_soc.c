@@ -28,6 +28,8 @@
 #include "hw/arm/boot.h"
 #include "exec/address-spaces.h"
 #include "hw/arm/stm32f205_soc.h"
+#include "hw/qdev-properties.h"
+#include "sysemu/sysemu.h"
 
 /* At the moment only Timer 2 to 5 are modelled */
 static const uint32_t timer_addr[STM_NUM_TIMERS] = { 0x40000000, 0x40000400,
@@ -91,13 +93,10 @@ static void stm32f205_soc_realize(DeviceState *dev_soc, Error **errp)
     MemoryRegion *flash = g_new(MemoryRegion, 1);
     MemoryRegion *flash_alias = g_new(MemoryRegion, 1);
 
-    memory_region_init_ram(flash, NULL, "STM32F205.flash", FLASH_SIZE,
-                           &error_fatal);
-    memory_region_init_alias(flash_alias, NULL, "STM32F205.flash.alias",
-                             flash, 0, FLASH_SIZE);
-
-    memory_region_set_readonly(flash, true);
-    memory_region_set_readonly(flash_alias, true);
+    memory_region_init_rom(flash, OBJECT(dev_soc), "STM32F205.flash",
+                           FLASH_SIZE, &error_fatal);
+    memory_region_init_alias(flash_alias, OBJECT(dev_soc),
+                             "STM32F205.flash.alias", flash, 0, FLASH_SIZE);
 
     memory_region_add_subregion(system_memory, FLASH_BASE_ADDRESS, flash);
     memory_region_add_subregion(system_memory, 0, flash_alias);
@@ -205,7 +204,7 @@ static void stm32f205_soc_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->realize = stm32f205_soc_realize;
-    dc->props = stm32f205_soc_properties;
+    device_class_set_props(dc, stm32f205_soc_properties);
 }
 
 static const TypeInfo stm32f205_soc_info = {

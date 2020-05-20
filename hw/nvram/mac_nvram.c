@@ -24,9 +24,10 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/hw.h"
 #include "hw/nvram/chrp_nvram.h"
 #include "hw/ppc/mac.h"
+#include "hw/qdev-properties.h"
+#include "migration/vmstate.h"
 #include "qemu/cutils.h"
 #include "qemu/module.h"
 #include <zlib.h>
@@ -127,7 +128,7 @@ static void macio_nvram_class_init(ObjectClass *oc, void *data)
     dc->unrealize = macio_nvram_unrealizefn;
     dc->reset = macio_nvram_reset;
     dc->vmsd = &vmstate_macio_nvram;
-    dc->props = macio_nvram_properties;
+    device_class_set_props(dc, macio_nvram_properties);
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
 }
 

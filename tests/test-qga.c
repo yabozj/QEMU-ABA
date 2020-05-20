@@ -143,7 +143,7 @@ static void qmp_assertion_message_error(const char     *domain,
 static void test_qga_sync_delimited(gconstpointer fix)
 {
     const TestFixture *fixture = fix;
-    guint32 v, r = g_random_int();
+    guint32 v, r = g_test_rand_int();
     unsigned char c;
     QDict *ret;
 
@@ -186,7 +186,7 @@ static void test_qga_sync_delimited(gconstpointer fix)
 static void test_qga_sync(gconstpointer fix)
 {
     const TestFixture *fixture = fix;
-    guint32 v, r = g_random_int();
+    guint32 v, r = g_test_rand_int();
     QDict *ret;
 
     /*
@@ -668,7 +668,7 @@ static void test_qga_blacklist(gconstpointer data)
     error = qdict_get_qdict(ret, "error");
     class = qdict_get_try_str(error, "class");
     desc = qdict_get_try_str(error, "desc");
-    g_assert_cmpstr(class, ==, "GenericError");
+    g_assert_cmpstr(class, ==, "CommandNotFound");
     g_assert_nonnull(g_strstr_len(desc, -1, "has been disabled"));
     qobject_unref(ret);
 
@@ -677,7 +677,7 @@ static void test_qga_blacklist(gconstpointer data)
     error = qdict_get_qdict(ret, "error");
     class = qdict_get_try_str(error, "class");
     desc = qdict_get_try_str(error, "desc");
-    g_assert_cmpstr(class, ==, "GenericError");
+    g_assert_cmpstr(class, ==, "CommandNotFound");
     g_assert_nonnull(g_strstr_len(desc, -1, "has been disabled"));
     qobject_unref(ret);
 

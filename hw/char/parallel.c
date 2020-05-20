@@ -26,11 +26,14 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/module.h"
-#include "hw/hw.h"
 #include "chardev/char-parallel.h"
 #include "chardev/char-fe.h"
+#include "hw/irq.h"
 #include "hw/isa/isa.h"
+#include "hw/qdev-properties.h"
+#include "migration/vmstate.h"
 #include "hw/char/parallel.h"
+#include "sysemu/reset.h"
 #include "sysemu/sysemu.h"
 #include "trace.h"
 
@@ -624,7 +627,7 @@ static void parallel_isa_class_initfn(ObjectClass *klass, void *data)
 
     dc->realize = parallel_isa_realizefn;
     dc->vmsd = &vmstate_parallel_isa;
-    dc->props = parallel_isa_properties;
+    device_class_set_props(dc, parallel_isa_properties);
     set_bit(DEVICE_CATEGORY_INPUT, dc->categories);
 }
 

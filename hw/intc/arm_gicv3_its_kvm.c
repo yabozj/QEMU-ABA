@@ -22,7 +22,8 @@
 #include "qapi/error.h"
 #include "qemu/module.h"
 #include "hw/intc/arm_gicv3_its_common.h"
-#include "sysemu/sysemu.h"
+#include "hw/qdev-properties.h"
+#include "sysemu/runstate.h"
 #include "sysemu/kvm.h"
 #include "kvm_arm.h"
 #include "migration/blocker.h"
@@ -245,7 +246,7 @@ static void kvm_arm_its_class_init(ObjectClass *klass, void *data)
     KVMARMITSClass *ic = KVM_ARM_ITS_CLASS(klass);
 
     dc->realize = kvm_arm_its_realize;
-    dc->props   = kvm_arm_its_props;
+    device_class_set_props(dc, kvm_arm_its_props);
     device_class_set_parent_reset(dc, kvm_arm_its_reset, &ic->parent_reset);
     icc->send_msi = kvm_its_send_msi;
     icc->pre_save = kvm_arm_its_pre_save;

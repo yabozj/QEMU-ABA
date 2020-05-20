@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Fedora VM image
 #
@@ -23,7 +23,7 @@ class FedoraVM(basevm.BaseVM):
     name = "fedora"
     arch = "x86_64"
 
-    base = "http://dl.fedoraproject.org/pub/fedora/linux/releases/30/"
+    base = "https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/30/"
     link = base + "Server/x86_64/iso/Fedora-Server-netinst-x86_64-30-1.2.iso"
     repo = base + "Server/x86_64/os/"
     full = base + "Everything/x86_64/os/"
@@ -53,7 +53,10 @@ class FedoraVM(basevm.BaseVM):
         # libs: audio
         '"pkgconfig(libpulse)"',
         '"pkgconfig(alsa)"',
-    ]
+
+        # libs: migration
+        '"pkgconfig(libzstd)"',
+]
 
     BUILD_SCRIPT = """
         set -e;
@@ -74,13 +77,12 @@ class FedoraVM(basevm.BaseVM):
 
         self.print_step("Preparing iso and disk image")
         subprocess.check_call(["cp", "-f", cimg, iso])
-        subprocess.check_call(["qemu-img", "create", "-f", "qcow2",
-                               img_tmp, self.size])
-
+        self.exec_qemu_img("create", "-f", "qcow2", img_tmp, self.size)
         self.print_step("Booting installer")
         self.boot(img_tmp, extra_args = [
             "-bios", "pc-bios/bios-256k.bin",
             "-machine", "graphics=off",
+            "-device", "VGA",
             "-cdrom", iso
         ])
         self.console_init(300)

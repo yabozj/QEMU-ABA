@@ -12,12 +12,14 @@
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
-#include "hw/hw.h"
 #include "hw/arm/pxa.h"
 #include "hw/arm/boot.h"
+#include "sysemu/runstate.h"
 #include "sysemu/sysemu.h"
 #include "hw/pcmcia.h"
+#include "hw/qdev-properties.h"
 #include "hw/i2c/i2c.h"
+#include "hw/irq.h"
 #include "hw/ssi/ssi.h"
 #include "hw/block/flash.h"
 #include "qemu/timer.h"
@@ -27,6 +29,7 @@
 #include "audio/audio.h"
 #include "hw/boards.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
 #include "exec/address-spaces.h"
 #include "cpu.h"
 
@@ -521,9 +524,14 @@ static void spitz_keyboard_init(Object *obj)
 
     spitz_keyboard_pre_map(s);
 
-    s->kbdtimer = timer_new_ns(QEMU_CLOCK_VIRTUAL, spitz_keyboard_tick, s);
     qdev_init_gpio_in(dev, spitz_keyboard_strobe, SPITZ_KEY_STROBE_NUM);
     qdev_init_gpio_out(dev, s->sense, SPITZ_KEY_SENSE_NUM);
+}
+
+static void spitz_keyboard_realize(DeviceState *dev, Error **errp)
+{
+    SpitzKeyboardState *s = SPITZ_KEYBOARD(dev);
+    s->kbdtimer = timer_new_ns(QEMU_CLOCK_VIRTUAL, spitz_keyboard_tick, s);
 }
 
 /* LCD backlight controller */
@@ -921,8 +929,7 @@ static void spitz_common_init(MachineState *machine,
 
     sl_flash_register(mpu, (model == spitz) ? FLASH_128M : FLASH_1024M);
 
-    memory_region_init_ram(rom, NULL, "spitz.rom", SPITZ_ROM, &error_fatal);
-    memory_region_set_readonly(rom, true);
+    memory_region_init_rom(rom, NULL, "spitz.rom", SPITZ_ROM, &error_fatal);
     memory_region_add_subregion(address_space_mem, 0, rom);
 
     /* Setup peripherals */
@@ -951,11 +958,8 @@ static void spitz_common_init(MachineState *machine,
         /* A 4.0 GB microdrive is permanently sitting in CF slot 0.  */
         spitz_microdrive_attach(mpu, 0);
 
-    spitz_binfo.kernel_filename = machine->kernel_filename;
-    spitz_binfo.kernel_cmdline = machine->kernel_cmdline;
-    spitz_binfo.initrd_filename = machine->initrd_filename;
     spitz_binfo.board_id = arm_id;
-    arm_load_kernel(mpu->cpu, &spitz_binfo);
+    arm_load_kernel(mpu->cpu, machine, &spitz_binfo);
     sl_bootparam_write(SL_PXA_PARAM_BASE);
 }
 
@@ -1083,7 +1087,7 @@ static void sl_nand_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->vmsd = &vmstate_sl_nand_info;
-    dc->props = sl_nand_properties;
+    device_class_set_props(dc, sl_nand_properties);
     dc->realize = sl_nand_realize;
     /* Reason: init() method uses drive_get() */
     dc->user_creatable = false;
@@ -1115,6 +1119,7 @@ static void spitz_keyboard_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->vmsd = &vmstate_spitz_kbd;
+    dc->realize = spitz_keyboard_realize;
 }
 
 static const TypeInfo spitz_keyboard_info = {

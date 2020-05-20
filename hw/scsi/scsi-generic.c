@@ -17,6 +17,8 @@
 #include "qemu/error-report.h"
 #include "qemu/module.h"
 #include "hw/scsi/scsi.h"
+#include "migration/qemu-file-types.h"
+#include "hw/qdev-properties.h"
 #include "hw/scsi/emulation.h"
 #include "sysemu/block-backend.h"
 #include "trace.h"
@@ -766,7 +768,7 @@ static void scsi_generic_class_initfn(ObjectClass *klass, void *data)
     dc->fw_name = "disk";
     dc->desc = "pass through generic scsi device (/dev/sg*)";
     dc->reset = scsi_generic_reset;
-    dc->props = scsi_generic_properties;
+    device_class_set_props(dc, scsi_generic_properties);
     dc->vmsd  = &vmstate_scsi_device;
 }
 

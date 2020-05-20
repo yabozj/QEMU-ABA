@@ -22,6 +22,7 @@
 #include "hw/virtio/virtio.h"
 #include "hw/virtio/virtio-scsi.h"
 #include "hw/pci/pci.h"
+#include "hw/qdev-properties.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "qemu/module.h"
@@ -69,7 +70,7 @@ static void vhost_user_scsi_pci_class_init(ObjectClass *klass, void *data)
     PCIDeviceClass *pcidev_k = PCI_DEVICE_CLASS(klass);
     k->realize = vhost_user_scsi_pci_realize;
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
-    dc->props = vhost_user_scsi_pci_properties;
+    device_class_set_props(dc, vhost_user_scsi_pci_properties);
     pcidev_k->vendor_id = PCI_VENDOR_ID_REDHAT_QUMRANET;
     pcidev_k->device_id = PCI_DEVICE_ID_VIRTIO_SCSI;
     pcidev_k->revision = 0x00;

@@ -26,7 +26,9 @@
 #include "qapi/error.h"
 #include "qemu/timer.h"
 #include "trace.h"
+#include "hw/qdev-properties.h"
 #include "hw/usb.h"
+#include "migration/vmstate.h"
 #include "desc.h"
 #include "qemu/error-report.h"
 #include "qemu/module.h"
@@ -684,7 +686,7 @@ static void usb_hub_class_initfn(ObjectClass *klass, void *data)
     set_bit(DEVICE_CATEGORY_BRIDGE, dc->categories);
     dc->fw_name = "hub";
     dc->vmsd = &vmstate_usb_hub;
-    dc->props = usb_hub_properties;
+    device_class_set_props(dc, usb_hub_properties);
 }
 
 static const TypeInfo hub_info = {

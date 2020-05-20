@@ -24,8 +24,7 @@
  */
 
 #include "qemu/osdep.h"
-#include "exec/cpu-common.h"
-#include "tcg-op.h"
+#include "tcg/tcg-op.h"
 
 #define CASE_OP_32_64(x)                        \
         glue(glue(case INDEX_op_, x), _i32):    \
@@ -1014,7 +1013,7 @@ void tcg_optimize(TCGContext *s)
         CASE_OP_32_64(qemu_ld):
             {
                 TCGMemOpIdx oi = op->args[nb_oargs + nb_iargs];
-                TCGMemOp mop = get_memop(oi);
+                MemOp mop = get_memop(oi);
                 if (!(mop & MO_SIGN)) {
                     mask = (2ULL << ((8 << (mop & MO_SIZE)) - 1)) - 1;
                 }

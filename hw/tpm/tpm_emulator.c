@@ -33,10 +33,10 @@
 #include "io/channel-socket.h"
 #include "sysemu/tpm_backend.h"
 #include "tpm_int.h"
-#include "hw/hw.h"
 #include "tpm_util.h"
 #include "tpm_ioctl.h"
 #include "migration/blocker.h"
+#include "migration/vmstate.h"
 #include "qapi/error.h"
 #include "qapi/clone-visitor.h"
 #include "qapi/qapi-visit-tpm.h"
@@ -155,7 +155,7 @@ static int tpm_emulator_unix_tx_bufs(TPMEmulator *tpm_emu,
                                      const uint8_t *in, uint32_t in_len,
                                      uint8_t *out, uint32_t out_len,
                                      bool *selftest_done,
-                                     Error **err)
+                                     Error **errp)
 {
     ssize_t ret;
     bool is_selftest = false;
@@ -165,20 +165,20 @@ static int tpm_emulator_unix_tx_bufs(TPMEmulator *tpm_emu,
         is_selftest = tpm_util_is_selftest(in, in_len);
     }
 
-    ret = qio_channel_write_all(tpm_emu->data_ioc, (char *)in, in_len, err);
+    ret = qio_channel_write_all(tpm_emu->data_ioc, (char *)in, in_len, errp);
     if (ret != 0) {
         return -1;
     }
 
     ret = qio_channel_read_all(tpm_emu->data_ioc, (char *)out,
-              sizeof(struct tpm_resp_hdr), err);
+              sizeof(struct tpm_resp_hdr), errp);
     if (ret != 0) {
         return -1;
     }
 
     ret = qio_channel_read_all(tpm_emu->data_ioc,
               (char *)out + sizeof(struct tpm_resp_hdr),
-              tpm_cmd_get_size(out) - sizeof(struct tpm_resp_hdr), err);
+              tpm_cmd_get_size(out) - sizeof(struct tpm_resp_hdr), errp);
     if (ret != 0) {
         return -1;
     }
@@ -914,7 +914,8 @@ static void tpm_emulator_inst_init(Object *obj)
     tpm_emu->cur_locty_number = ~0;
     qemu_mutex_init(&tpm_emu->mutex);
 
-    vmstate_register(NULL, -1, &vmstate_tpm_emulator, obj);
+    vmstate_register(NULL, VMSTATE_INSTANCE_ID_ANY,
+                     &vmstate_tpm_emulator, obj);
 }
 
 /*

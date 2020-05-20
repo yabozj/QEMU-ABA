@@ -13,20 +13,26 @@
 #include "qapi/error.h"
 #include "cpu.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
 #include "hw/arm/boot.h"
 #include "net/net.h"
 #include "sysemu/sysemu.h"
 #include "hw/boards.h"
 #include "hw/char/serial.h"
+#include "hw/hw.h"
 #include "qemu/timer.h"
 #include "hw/ptimer.h"
+#include "hw/qdev-properties.h"
 #include "hw/block/flash.h"
 #include "ui/console.h"
 #include "hw/i2c/i2c.h"
+#include "hw/irq.h"
 #include "hw/audio/wm8750.h"
 #include "sysemu/block-backend.h"
+#include "sysemu/runstate.h"
 #include "exec/address-spaces.h"
 #include "ui/pixel_ops.h"
+#include "qemu/cutils.h"
 
 #define MP_MISC_BASE            0x80002000
 #define MP_MISC_SIZE            0x00001000
@@ -430,7 +436,7 @@ static void mv88w8618_eth_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->vmsd = &mv88w8618_eth_vmsd;
-    dc->props = mv88w8618_eth_properties;
+    device_class_set_props(dc, mv88w8618_eth_properties);
     dc->realize = mv88w8618_eth_realize;
 }
 
@@ -838,13 +844,10 @@ static void mv88w8618_timer_tick(void *opaque)
 static void mv88w8618_timer_init(SysBusDevice *dev, mv88w8618_timer_state *s,
                                  uint32_t freq)
 {
-    QEMUBH *bh;
-
     sysbus_init_irq(dev, &s->irq);
     s->freq = freq;
 
-    bh = qemu_bh_new(mv88w8618_timer_tick, s);
-    s->ptimer = ptimer_init(bh, PTIMER_POLICY_DEFAULT);
+    s->ptimer = ptimer_init(mv88w8618_timer_tick, s, PTIMER_POLICY_DEFAULT);
 }
 
 static uint64_t mv88w8618_pit_read(void *opaque, hwaddr offset,
@@ -874,16 +877,19 @@ static void mv88w8618_pit_write(void *opaque, hwaddr offset,
     case MP_PIT_TIMER1_LENGTH ... MP_PIT_TIMER4_LENGTH:
         t = &s->timer[offset >> 2];
         t->limit = value;
+        ptimer_transaction_begin(t->ptimer);
         if (t->limit > 0) {
             ptimer_set_limit(t->ptimer, t->limit, 1);
         } else {
             ptimer_stop(t->ptimer);
         }
+        ptimer_transaction_commit(t->ptimer);
         break;
 
     case MP_PIT_CONTROL:
         for (i = 0; i < 4; i++) {
             t = &s->timer[i];
+            ptimer_transaction_begin(t->ptimer);
             if (value & 0xf && t->limit > 0) {
                 ptimer_set_limit(t->ptimer, t->limit, 0);
                 ptimer_set_freq(t->ptimer, t->freq);
@@ -891,6 +897,7 @@ static void mv88w8618_pit_write(void *opaque, hwaddr offset,
             } else {
                 ptimer_stop(t->ptimer);
             }
+            ptimer_transaction_commit(t->ptimer);
             value >>= 4;
         }
         break;
@@ -909,8 +916,11 @@ static void mv88w8618_pit_reset(DeviceState *d)
     int i;
 
     for (i = 0; i < 4; i++) {
-        ptimer_stop(s->timer[i].ptimer);
-        s->timer[i].limit = 0;
+        mv88w8618_timer_state *t = &s->timer[i];
+        ptimer_transaction_begin(t->ptimer);
+        ptimer_stop(t->ptimer);
+        ptimer_transaction_commit(t->ptimer);
+        t->limit = 0;
     }
 }
 
@@ -1568,9 +1578,6 @@ static struct arm_boot_info musicpal_binfo = {
 
 static void musicpal_init(MachineState *machine)
 {
-    const char *kernel_filename = machine->kernel_filename;
-    const char *kernel_cmdline = machine->kernel_cmdline;
-    const char *initrd_filename = machine->initrd_filename;
     ARMCPU *cpu;
     qemu_irq pic[32];
     DeviceState *dev;
@@ -1583,16 +1590,21 @@ static void musicpal_init(MachineState *machine)
     int i;
     unsigned long flash_size;
     DriveInfo *dinfo;
+    MachineClass *mc = MACHINE_GET_CLASS(machine);
     MemoryRegion *address_space_mem = get_system_memory();
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
     MemoryRegion *sram = g_new(MemoryRegion, 1);
+
+    /* For now we use a fixed - the original - RAM size */
+    if (machine->ram_size != mc->default_ram_size) {
+        char *sz = size_to_str(mc->default_ram_size);
+        error_report("Invalid RAM size, should be %s", sz);
+        g_free(sz);
+        exit(EXIT_FAILURE);
+    }
 
     cpu = ARM_CPU(cpu_create(machine->cpu_type));
 
-    /* For now we use a fixed - the original - RAM size */
-    memory_region_allocate_system_memory(ram, NULL, "musicpal.ram",
-                                         MP_RAM_DEFAULT_SIZE);
-    memory_region_add_subregion(address_space_mem, 0, ram);
+    memory_region_add_subregion(address_space_mem, 0, machine->ram);
 
     memory_region_init_ram(sram, NULL, "musicpal.sram", MP_SRAM_SIZE,
                            &error_fatal);
@@ -1633,22 +1645,12 @@ static void musicpal_init(MachineState *machine)
          * 0xFF800000 (if there is 8 MB flash). So remap flash access if the
          * image is smaller than 32 MB.
          */
-#ifdef TARGET_WORDS_BIGENDIAN
-        pflash_cfi02_register(0x100000000ULL - MP_FLASH_SIZE_MAX,
-                              "musicpal.flash", flash_size,
-                              blk, 0x10000,
-                              MP_FLASH_SIZE_MAX / flash_size,
-                              2, 0x00BF, 0x236D, 0x0000, 0x0000,
-                              0x5555, 0x2AAA, 1);
-#else
         pflash_cfi02_register(0x100000000ULL - MP_FLASH_SIZE_MAX,
                               "musicpal.flash", flash_size,
                               blk, 0x10000,
                               MP_FLASH_SIZE_MAX / flash_size,
                               2, 0x00BF, 0x236D, 0x0000, 0x0000,
                               0x5555, 0x2AAA, 0);
-#endif
-
     }
     sysbus_create_simple(TYPE_MV88W8618_FLASHCFG, MP_FLASHCFG_BASE, NULL);
 
@@ -1699,10 +1701,7 @@ static void musicpal_init(MachineState *machine)
     sysbus_connect_irq(s, 0, pic[MP_AUDIO_IRQ]);
 
     musicpal_binfo.ram_size = MP_RAM_DEFAULT_SIZE;
-    musicpal_binfo.kernel_filename = kernel_filename;
-    musicpal_binfo.kernel_cmdline = kernel_cmdline;
-    musicpal_binfo.initrd_filename = initrd_filename;
-    arm_load_kernel(cpu, &musicpal_binfo);
+    arm_load_kernel(cpu, machine, &musicpal_binfo);
 }
 
 static void musicpal_machine_init(MachineClass *mc)
@@ -1711,6 +1710,8 @@ static void musicpal_machine_init(MachineClass *mc)
     mc->init = musicpal_init;
     mc->ignore_memory_transaction_failures = true;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("arm926");
+    mc->default_ram_size = MP_RAM_DEFAULT_SIZE;
+    mc->default_ram_id = "musicpal.ram";
 }
 
 DEFINE_MACHINE("musicpal", musicpal_machine_init)

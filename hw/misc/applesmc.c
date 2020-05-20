@@ -31,8 +31,8 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/hw.h"
 #include "hw/isa/isa.h"
+#include "hw/qdev-properties.h"
 #include "ui/console.h"
 #include "qemu/module.h"
 #include "qemu/timer.h"
@@ -353,7 +353,7 @@ static void qdev_applesmc_class_init(ObjectClass *klass, void *data)
 
     dc->realize = applesmc_isa_realize;
     dc->reset = qdev_applesmc_isa_reset;
-    dc->props = applesmc_isa_properties;
+    device_class_set_props(dc, applesmc_isa_properties);
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
 }
 

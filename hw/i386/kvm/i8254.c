@@ -25,10 +25,11 @@
 
 #include "qemu/osdep.h"
 #include <linux/kvm.h>
+#include "qapi/qapi-types-misc.h"
 #include "qapi/error.h"
 #include "qemu/module.h"
 #include "qemu/timer.h"
-#include "sysemu/sysemu.h"
+#include "sysemu/runstate.h"
 #include "hw/timer/i8254.h"
 #include "hw/timer/i8254_internal.h"
 #include "sysemu/kvm.h"
@@ -321,7 +322,7 @@ static void kvm_pit_class_init(ObjectClass *klass, void *data)
     k->set_channel_gate = kvm_pit_set_gate;
     k->get_channel_info = kvm_pit_get_channel_info;
     dc->reset = kvm_pit_reset;
-    dc->props = kvm_pit_properties;
+    device_class_set_props(dc, kvm_pit_properties);
 }
 
 static const TypeInfo kvm_pit_info = {

@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  */
 
-#include "tcg-pool.inc.c"
+#include "../tcg-pool.inc.c"
 
 #ifdef CONFIG_DEBUG_TCG
 static const char * const tcg_target_reg_names[TCG_TARGET_NB_REGS] = {
@@ -1647,7 +1647,7 @@ static void tcg_out_nopn(TCGContext *s, int n)
 }
 
 #if defined(CONFIG_SOFTMMU)
-#include "tcg-ldst.inc.c"
+#include "../tcg-ldst.inc.c"
 
 /* helper signature: helper_ret_ld_mmu(CPUState *env, target_ulong addr,
  *                                     int mmu_idx, uintptr_t ra)
@@ -1697,7 +1697,7 @@ static void * const qemu_st_helpers[16] = {
    First argument register is clobbered.  */
 
 static inline void tcg_out_tlb_load(TCGContext *s, TCGReg addrlo, TCGReg addrhi,
-                                    int mem_index, TCGMemOp opc,
+                                    int mem_index, MemOp opc,
                                     tcg_insn_unit **label_ptr, int which)
 {
     const TCGReg r0 = TCG_REG_L0;
@@ -1810,7 +1810,7 @@ static void add_qemu_ldst_label(TCGContext *s, bool is_ld, bool is_64,
 static bool tcg_out_qemu_ld_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
 {
     TCGMemOpIdx oi = l->oi;
-    TCGMemOp opc = get_memop(oi);
+    MemOp opc = get_memop(oi);
     TCGReg data_reg;
     tcg_insn_unit **label_ptr = &l->label_ptr[0];
     int rexw = (l->type == TCG_TYPE_I64 ? P_REXW : 0);
@@ -1895,8 +1895,8 @@ static bool tcg_out_qemu_ld_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
 static bool tcg_out_qemu_st_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
 {
     TCGMemOpIdx oi = l->oi;
-    TCGMemOp opc = get_memop(oi);
-    TCGMemOp s_bits = opc & MO_SIZE;
+    MemOp opc = get_memop(oi);
+    MemOp s_bits = opc & MO_SIZE;
     tcg_insn_unit **label_ptr = &l->label_ptr[0];
     TCGReg retaddr;
 
@@ -1995,10 +1995,10 @@ static inline int setup_guest_base_seg(void)
 
 static void tcg_out_qemu_ld_direct(TCGContext *s, TCGReg datalo, TCGReg datahi,
                                    TCGReg base, int index, intptr_t ofs,
-                                   int seg, bool is64, TCGMemOp memop)
+                                   int seg, bool is64, MemOp memop)
 {
-    const TCGMemOp real_bswap = memop & MO_BSWAP;
-    TCGMemOp bswap = real_bswap;
+    const MemOp real_bswap = memop & MO_BSWAP;
+    MemOp bswap = real_bswap;
     int rexw = is64 * P_REXW;
     int movop = OPC_MOVL_GvEv;
 
@@ -2103,7 +2103,7 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is64)
     TCGReg datalo, datahi, addrlo;
     TCGReg addrhi __attribute__((unused));
     TCGMemOpIdx oi;
-    TCGMemOp opc;
+    MemOp opc;
 #if defined(CONFIG_SOFTMMU)
     int mem_index;
     tcg_insn_unit *label_ptr[2];
@@ -2137,15 +2137,15 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is64)
 
 static void tcg_out_qemu_st_direct(TCGContext *s, TCGReg datalo, TCGReg datahi,
                                    TCGReg base, int index, intptr_t ofs,
-                                   int seg, TCGMemOp memop)
+                                   int seg, MemOp memop)
 {
     /* ??? Ideally we wouldn't need a scratch register.  For user-only,
        we could perform the bswap twice to restore the original value
        instead of moving to the scratch.  But as it is, the L constraint
        means that TCG_REG_L0 is definitely free here.  */
     const TCGReg scratch = TCG_REG_L0;
-    const TCGMemOp real_bswap = memop & MO_BSWAP;
-    TCGMemOp bswap = real_bswap;
+    const MemOp real_bswap = memop & MO_BSWAP;
+    MemOp bswap = real_bswap;
     int movop = OPC_MOVL_EvGv;
 
     if (have_movbe && real_bswap) {
@@ -2221,7 +2221,7 @@ static void tcg_out_qemu_st(TCGContext *s, const TCGArg *args, bool is64)
     TCGReg datalo, datahi, addrlo;
     TCGReg addrhi __attribute__((unused));
     TCGMemOpIdx oi;
-    TCGMemOp opc;
+    MemOp opc;
 #if defined(CONFIG_SOFTMMU)
     int mem_index;
     tcg_insn_unit *label_ptr[2];
@@ -2855,9 +2855,13 @@ static void tcg_out_vec_op(TCGContext *s, TCGOpcode opc,
         goto gen_simd;
 #if TCG_TARGET_REG_BITS == 32
     case INDEX_op_dup2_vec:
-        /* Constraints have already placed both 32-bit inputs in xmm regs.  */
-        insn = OPC_PUNPCKLDQ;
-        goto gen_simd;
+        /* First merge the two 32-bit inputs to a single 64-bit element. */
+        tcg_out_vex_modrm(s, OPC_PUNPCKLDQ, a0, a1, a2);
+        /* Then replicate the 64-bit elements across the rest of the vector. */
+        if (type != TCG_TYPE_V64) {
+            tcg_out_dup_vec(s, type, MO_64, a0, a0);
+        }
+        break;
 #endif
     case INDEX_op_abs_vec:
         insn = abs_insn[vece];
@@ -3391,12 +3395,15 @@ static void expand_vec_sari(TCGType type, unsigned vece,
 
     case MO_64:
         if (imm <= 32) {
-            /* We can emulate a small sign extend by performing an arithmetic
+            /*
+             * We can emulate a small sign extend by performing an arithmetic
              * 32-bit shift and overwriting the high half of a 64-bit logical
-             * shift (note that the ISA says shift of 32 is valid).
+             * shift.  Note that the ISA says shift of 32 is valid, but TCG
+             * does not, so we have to bound the smaller shift -- we get the
+             * same result in the high half either way.
              */
             t1 = tcg_temp_new_vec(type);
-            tcg_gen_sari_vec(MO_32, t1, v1, imm);
+            tcg_gen_sari_vec(MO_32, t1, v1, MIN(imm, 31));
             tcg_gen_shri_vec(MO_64, v0, v1, imm);
             vec_gen_4(INDEX_op_x86_blend_vec, type, MO_32,
                       tcgv_vec_arg(v0), tcgv_vec_arg(v0),
@@ -3730,7 +3737,7 @@ static void tcg_target_qemu_prologue(TCGContext *s)
         } else {
             /* Choose R12 because, as a base, it requires a SIB byte. */
             x86_guest_base_index = TCG_REG_R12;
-            tcg_out_mov(s, TCG_TYPE_PTR, x86_guest_base_index, guest_base);
+            tcg_out_movi(s, TCG_TYPE_PTR, x86_guest_base_index, guest_base);
             tcg_regset_set_reg(s->reserved_regs, x86_guest_base_index);
         }
     }

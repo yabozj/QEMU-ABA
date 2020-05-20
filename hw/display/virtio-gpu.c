@@ -17,12 +17,15 @@
 #include "ui/console.h"
 #include "trace.h"
 #include "sysemu/dma.h"
+#include "sysemu/sysemu.h"
 #include "hw/virtio/virtio.h"
+#include "migration/qemu-file-types.h"
 #include "hw/virtio/virtio-gpu.h"
 #include "hw/virtio/virtio-gpu-bswap.h"
 #include "hw/virtio/virtio-gpu-pixman.h"
 #include "hw/virtio/virtio-bus.h"
 #include "hw/display/edid.h"
+#include "hw/qdev-properties.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
 #include "qapi/error.h"
@@ -1251,7 +1254,7 @@ static void virtio_gpu_class_init(ObjectClass *klass, void *data)
     vdc->set_config = virtio_gpu_set_config;
 
     dc->vmsd = &vmstate_virtio_gpu;
-    dc->props = virtio_gpu_properties;
+    device_class_set_props(dc, virtio_gpu_properties);
 }
 
 static const TypeInfo virtio_gpu_info = {

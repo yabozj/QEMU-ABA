@@ -23,17 +23,20 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/hw.h"
 #include "hw/pci/pci.h"
+#include "hw/qdev-properties.h"
 #include "sysemu/dma.h"
 #include "hw/pci/msi.h"
 #include "qemu/iov.h"
+#include "qemu/main-loop.h"
 #include "qemu/module.h"
 #include "hw/scsi/scsi.h"
 #include "scsi/constants.h"
 #include "trace.h"
 #include "qapi/error.h"
 #include "mptsas.h"
+#include "migration/qemu-file-types.h"
+#include "migration/vmstate.h"
 #include "mpi.h"
 
 #define NAA_LOCALLY_ASSIGNED_ID 0x3ULL
@@ -1428,7 +1431,7 @@ static void mptsas1068_class_init(ObjectClass *oc, void *data)
     pc->subsystem_vendor_id = PCI_VENDOR_ID_LSI_LOGIC;
     pc->subsystem_id = 0x8000;
     pc->class_id = PCI_CLASS_STORAGE_SCSI;
-    dc->props = mptsas_properties;
+    device_class_set_props(dc, mptsas_properties);
     dc->reset = mptsas_reset;
     dc->vmsd = &vmstate_mptsas;
     dc->desc = "LSI SAS 1068";

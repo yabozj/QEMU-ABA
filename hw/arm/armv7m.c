@@ -14,8 +14,10 @@
 #include "hw/sysbus.h"
 #include "hw/arm/boot.h"
 #include "hw/loader.h"
+#include "hw/qdev-properties.h"
 #include "elf.h"
 #include "sysemu/qtest.h"
+#include "sysemu/reset.h"
 #include "qemu/error-report.h"
 #include "qemu/module.h"
 #include "exec/address-spaces.h"
@@ -286,7 +288,7 @@ static void armv7m_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->realize = armv7m_realize;
-    dc->props = armv7m_properties;
+    device_class_set_props(dc, armv7m_properties);
 }
 
 static const TypeInfo armv7m_info = {
@@ -329,7 +331,7 @@ void armv7m_load_kernel(ARMCPU *cpu, const char *kernel_filename, int mem_size)
 
     if (kernel_filename) {
         image_size = load_elf_as(kernel_filename, NULL, NULL, NULL,
-                                 &entry, &lowaddr,
+                                 &entry, &lowaddr, NULL,
                                  NULL, big_endian, EM_ARM, 1, 0, as);
         if (image_size < 0) {
             image_size = load_image_targphys_as(kernel_filename, 0,
@@ -365,7 +367,7 @@ static void bitband_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->realize = bitband_realize;
-    dc->props = bitband_properties;
+    device_class_set_props(dc, bitband_properties);
 }
 
 static const TypeInfo bitband_info = {

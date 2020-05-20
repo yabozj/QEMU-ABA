@@ -1547,8 +1547,8 @@ vvfat_co_preadv(BlockDriverState *bs, uint64_t offset, uint64_t bytes,
     int nb_sectors = bytes >> BDRV_SECTOR_BITS;
     void *buf;
 
-    assert((offset & (BDRV_SECTOR_SIZE - 1)) == 0);
-    assert((bytes & (BDRV_SECTOR_SIZE - 1)) == 0);
+    assert(QEMU_IS_ALIGNED(offset, BDRV_SECTOR_SIZE));
+    assert(QEMU_IS_ALIGNED(bytes, BDRV_SECTOR_SIZE));
 
     buf = g_try_malloc(bytes);
     if (bytes && buf == NULL) {
@@ -3082,8 +3082,8 @@ vvfat_co_pwritev(BlockDriverState *bs, uint64_t offset, uint64_t bytes,
     int nb_sectors = bytes >> BDRV_SECTOR_BITS;
     void *buf;
 
-    assert((offset & (BDRV_SECTOR_SIZE - 1)) == 0);
-    assert((bytes & (BDRV_SECTOR_SIZE - 1)) == 0);
+    assert(QEMU_IS_ALIGNED(offset, BDRV_SECTOR_SIZE));
+    assert(QEMU_IS_ALIGNED(bytes, BDRV_SECTOR_SIZE));
 
     buf = g_try_malloc(bytes);
     if (bytes && buf == NULL) {
@@ -3124,17 +3124,10 @@ write_target_commit(BlockDriverState *bs, uint64_t offset, uint64_t bytes,
     return ret;
 }
 
-static void write_target_close(BlockDriverState *bs) {
-    BDRVVVFATState* s = *((BDRVVVFATState**) bs->opaque);
-    bdrv_unref_child(s->bs, s->qcow);
-    g_free(s->qcow_filename);
-}
-
 static BlockDriver vvfat_write_target = {
     .format_name        = "vvfat_write_target",
     .instance_size      = sizeof(void*),
     .bdrv_co_pwritev    = write_target_commit,
-    .bdrv_close         = write_target_close,
 };
 
 static void vvfat_qcow_options(int *child_flags, QDict *child_options,

@@ -11,15 +11,19 @@
 #include "qapi/error.h"
 #include "cpu.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
 #include "hw/boards.h"
 #include "hw/arm/boot.h"
 #include "hw/misc/arm_integrator_debug.h"
 #include "hw/net/smc91c111.h"
 #include "net/net.h"
 #include "exec/address-spaces.h"
+#include "sysemu/runstate.h"
 #include "sysemu/sysemu.h"
 #include "qemu/error-report.h"
 #include "hw/char/pl011.h"
+#include "hw/hw.h"
+#include "hw/irq.h"
 
 #define TYPE_INTEGRATOR_CM "integrator_core"
 #define INTEGRATOR_CM(obj) \
@@ -578,13 +582,9 @@ static struct arm_boot_info integrator_binfo = {
 static void integratorcp_init(MachineState *machine)
 {
     ram_addr_t ram_size = machine->ram_size;
-    const char *kernel_filename = machine->kernel_filename;
-    const char *kernel_cmdline = machine->kernel_cmdline;
-    const char *initrd_filename = machine->initrd_filename;
     Object *cpuobj;
     ARMCPU *cpu;
     MemoryRegion *address_space_mem = get_system_memory();
-    MemoryRegion *ram = g_new(MemoryRegion, 1);
     MemoryRegion *ram_alias = g_new(MemoryRegion, 1);
     qemu_irq pic[32];
     DeviceState *dev, *sic, *icp;
@@ -604,14 +604,13 @@ static void integratorcp_init(MachineState *machine)
 
     cpu = ARM_CPU(cpuobj);
 
-    memory_region_allocate_system_memory(ram, NULL, "integrator.ram",
-                                         ram_size);
     /* ??? On a real system the first 1Mb is mapped as SSRAM or boot flash.  */
     /* ??? RAM should repeat to fill physical memory space.  */
     /* SDRAM at address zero*/
-    memory_region_add_subregion(address_space_mem, 0, ram);
+    memory_region_add_subregion(address_space_mem, 0, machine->ram);
     /* And again at address 0x80000000 */
-    memory_region_init_alias(ram_alias, NULL, "ram.alias", ram, 0, ram_size);
+    memory_region_init_alias(ram_alias, NULL, "ram.alias", machine->ram,
+                             0, ram_size);
     memory_region_add_subregion(address_space_mem, 0x80000000, ram_alias);
 
     dev = qdev_create(NULL, TYPE_INTEGRATOR_CM);
@@ -643,6 +642,7 @@ static void integratorcp_init(MachineState *machine)
                           qdev_get_gpio_in_named(icp, ICP_GPIO_MMC_WPROT, 0));
     qdev_connect_gpio_out(dev, 1,
                           qdev_get_gpio_in_named(icp, ICP_GPIO_MMC_CARDIN, 0));
+    sysbus_create_varargs("pl041", 0x1d000000, pic[25], NULL);
 
     if (nd_table[0].used)
         smc91c111_init(&nd_table[0], 0xc8000000, pic[27]);
@@ -650,10 +650,7 @@ static void integratorcp_init(MachineState *machine)
     sysbus_create_simple("pl110", 0xc0000000, pic[22]);
 
     integrator_binfo.ram_size = ram_size;
-    integrator_binfo.kernel_filename = kernel_filename;
-    integrator_binfo.kernel_cmdline = kernel_cmdline;
-    integrator_binfo.initrd_filename = initrd_filename;
-    arm_load_kernel(cpu, &integrator_binfo);
+    arm_load_kernel(cpu, machine, &integrator_binfo);
 }
 
 static void integratorcp_machine_init(MachineClass *mc)
@@ -662,6 +659,7 @@ static void integratorcp_machine_init(MachineClass *mc)
     mc->init = integratorcp_init;
     mc->ignore_memory_transaction_failures = true;
     mc->default_cpu_type = ARM_CPU_TYPE_NAME("arm926");
+    mc->default_ram_id = "integrator.ram";
 }
 
 DEFINE_MACHINE("integratorcp", integratorcp_machine_init)
@@ -675,7 +673,7 @@ static void core_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 
-    dc->props = core_properties;
+    device_class_set_props(dc, core_properties);
     dc->realize = integratorcm_realize;
     dc->vmsd = &vmstate_integratorcm;
 }

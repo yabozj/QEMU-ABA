@@ -26,6 +26,7 @@
 #include "sysemu/block-backend.h"
 #include "block/throttle-groups.h"
 #include "qemu/throttle-options.h"
+#include "qemu/main-loop.h"
 #include "qemu/queue.h"
 #include "qemu/thread.h"
 #include "sysemu/qtest.h"
@@ -892,8 +893,7 @@ static void throttle_group_set_limits(Object *obj, Visitor *v,
 {
     ThrottleGroup *tg = THROTTLE_GROUP(obj);
     ThrottleConfig cfg;
-    ThrottleLimits arg = { 0 };
-    ThrottleLimits *argp = &arg;
+    ThrottleLimits *argp;
     Error *local_err = NULL;
 
     visit_type_ThrottleLimits(v, name, &argp, &local_err);
@@ -911,6 +911,7 @@ static void throttle_group_set_limits(Object *obj, Visitor *v,
 unlock:
     qemu_mutex_unlock(&tg->lock);
 ret:
+    qapi_free_ThrottleLimits(argp);
     error_propagate(errp, local_err);
     return;
 }

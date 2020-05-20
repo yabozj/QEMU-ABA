@@ -52,8 +52,6 @@ static int fp_init(u32 hartid)
 {
 #ifdef __riscv_flen
 	int i;
-#else
-	unsigned long fd_mask;
 #endif
 
 	if (!misa_extension('D') && !misa_extension('F'))
@@ -66,11 +64,6 @@ static int fp_init(u32 hartid)
 	for (i = 0; i < 32; i++)
 		init_fp_reg(i);
 	csr_write(CSR_FCSR, 0);
-#else
-	fd_mask = (1 << ('F' - 'A')) | (1 << ('D' - 'A'));
-	csr_clear(CSR_MISA, fd_mask);
-	if (csr_read(CSR_MISA) & fd_mask)
-		return SBI_ENOTSUPP;
 #endif
 
 	return 0;
@@ -94,15 +87,35 @@ static int delegate_traps(struct sbi_scratch *scratch, u32 hartid)
 			      (1U << CAUSE_LOAD_PAGE_FAULT) |
 			      (1U << CAUSE_STORE_PAGE_FAULT);
 
+	/*
+	 * If hypervisor extension available then we only handle hypervisor
+	 * calls (i.e. ecalls from HS-mode) in M-mode.
+	 *
+	 * The HS-mode will additionally handle supervisor calls (i.e. ecalls
+	 * from VS-mode), Guest page faults and Virtual interrupts.
+	 */
+	if (misa_extension('H')) {
+		exceptions |= (1U << CAUSE_SUPERVISOR_ECALL);
+		exceptions |= (1U << CAUSE_FETCH_GUEST_PAGE_FAULT);
+		exceptions |= (1U << CAUSE_LOAD_GUEST_PAGE_FAULT);
+		exceptions |= (1U << CAUSE_STORE_GUEST_PAGE_FAULT);
+	}
+
 	csr_write(CSR_MIDELEG, interrupts);
 	csr_write(CSR_MEDELEG, exceptions);
 
-	if (csr_read(CSR_MIDELEG) != interrupts)
-		return SBI_EFAIL;
-	if (csr_read(CSR_MEDELEG) != exceptions)
-		return SBI_EFAIL;
-
 	return 0;
+}
+
+void sbi_hart_delegation_dump(struct sbi_scratch *scratch)
+{
+#if __riscv_xlen == 32
+	sbi_printf("MIDELEG : 0x%08lx\n", csr_read(CSR_MIDELEG));
+	sbi_printf("MEDELEG : 0x%08lx\n", csr_read(CSR_MEDELEG));
+#else
+	sbi_printf("MIDELEG : 0x%016lx\n", csr_read(CSR_MIDELEG));
+	sbi_printf("MEDELEG : 0x%016lx\n", csr_read(CSR_MEDELEG));
+#endif
 }
 
 unsigned long log2roundup(unsigned long x)
@@ -136,9 +149,9 @@ void sbi_hart_pmp_dump(struct sbi_scratch *scratch)
 		else
 			size = 0;
 #if __riscv_xlen == 32
-		sbi_printf("PMP%d: 0x%08lx-0x%08lx (A",
+		sbi_printf("PMP%d    : 0x%08lx-0x%08lx (A",
 #else
-		sbi_printf("PMP%d: 0x%016lx-0x%016lx (A",
+		sbi_printf("PMP%d    : 0x%016lx-0x%016lx (A",
 #endif
 			   i, addr, addr + size - 1);
 		if (prot & PMP_L)
@@ -240,9 +253,14 @@ void __attribute__((noreturn)) sbi_hart_hang(void)
 
 void __attribute__((noreturn))
 sbi_hart_switch_mode(unsigned long arg0, unsigned long arg1,
-		     unsigned long next_addr, unsigned long next_mode)
+		     unsigned long next_addr, unsigned long next_mode,
+		     bool next_virt)
 {
+#if __riscv_xlen == 32
+	unsigned long val, valH;
+#else
 	unsigned long val;
+#endif
 
 	switch (next_mode) {
 	case PRV_M:
@@ -262,7 +280,23 @@ sbi_hart_switch_mode(unsigned long arg0, unsigned long arg1,
 	val = csr_read(CSR_MSTATUS);
 	val = INSERT_FIELD(val, MSTATUS_MPP, next_mode);
 	val = INSERT_FIELD(val, MSTATUS_MPIE, 0);
-
+#if __riscv_xlen == 32
+	if (misa_extension('H')) {
+		valH = csr_read(CSR_MSTATUSH);
+		if (next_virt)
+			valH = INSERT_FIELD(valH, MSTATUSH_MPV, 1);
+		else
+			valH = INSERT_FIELD(valH, MSTATUSH_MPV, 0);
+		csr_write(CSR_MSTATUSH, valH);
+	}
+#else
+	if (misa_extension('H')) {
+		if (next_virt)
+			val = INSERT_FIELD(val, MSTATUS_MPV, 1);
+		else
+			val = INSERT_FIELD(val, MSTATUS_MPV, 0);
+	}
+#endif
 	csr_write(CSR_MSTATUS, val);
 	csr_write(CSR_MEPC, next_addr);
 
@@ -320,35 +354,49 @@ struct sbi_scratch *sbi_hart_id_to_scratch(struct sbi_scratch *scratch,
 }
 
 #define COLDBOOT_WAIT_BITMAP_SIZE __riscv_xlen
-static spinlock_t coldboot_wait_bitmap_lock = SPIN_LOCK_INITIALIZER;
-static unsigned long coldboot_wait_bitmap   = 0;
+static spinlock_t coldboot_lock = SPIN_LOCK_INITIALIZER;
+static unsigned long coldboot_done = 0;
+static unsigned long coldboot_wait_bitmap = 0;
 
 void sbi_hart_wait_for_coldboot(struct sbi_scratch *scratch, u32 hartid)
 {
-	unsigned long mipval;
+	unsigned long saved_mie;
 	const struct sbi_platform *plat = sbi_platform_ptr(scratch);
 
 	if ((sbi_platform_hart_count(plat) <= hartid) ||
 	    (COLDBOOT_WAIT_BITMAP_SIZE <= hartid))
 		sbi_hart_hang();
 
+	/* Save MIE CSR */
+	saved_mie = csr_read(CSR_MIE);
+
 	/* Set MSIE bit to receive IPI */
 	csr_set(CSR_MIE, MIP_MSIP);
 
-	do {
-		spin_lock(&coldboot_wait_bitmap_lock);
-		coldboot_wait_bitmap |= (1UL << hartid);
-		spin_unlock(&coldboot_wait_bitmap_lock);
+	/* Acquire coldboot lock */
+	spin_lock(&coldboot_lock);
 
+	/* Mark current HART as waiting */
+	coldboot_wait_bitmap |= (1UL << hartid);
+
+	/* Wait for coldboot to finish using WFI */
+	while (!coldboot_done) {
+		spin_unlock(&coldboot_lock);
 		wfi();
-		mipval = csr_read(CSR_MIP);
+		spin_lock(&coldboot_lock);
+	};
 
-		spin_lock(&coldboot_wait_bitmap_lock);
-		coldboot_wait_bitmap &= ~(1UL << hartid);
-		spin_unlock(&coldboot_wait_bitmap_lock);
-	} while (!(mipval && MIP_MSIP));
+	/* Unmark current HART as waiting */
+	coldboot_wait_bitmap &= ~(1UL << hartid);
 
-	csr_clear(CSR_MIP, MIP_MSIP);
+	/* Release coldboot lock */
+	spin_unlock(&coldboot_lock);
+
+	/* Restore MIE CSR */
+	csr_write(CSR_MIE, saved_mie);
+
+	/* Clear current HART IPI */
+	sbi_platform_ipi_clear(plat, hartid);
 }
 
 void sbi_hart_wake_coldboot_harts(struct sbi_scratch *scratch, u32 hartid)
@@ -356,11 +404,18 @@ void sbi_hart_wake_coldboot_harts(struct sbi_scratch *scratch, u32 hartid)
 	const struct sbi_platform *plat = sbi_platform_ptr(scratch);
 	int max_hart			= sbi_platform_hart_count(plat);
 
+	/* Acquire coldboot lock */
+	spin_lock(&coldboot_lock);
+
+	/* Mark coldboot done */
+	coldboot_done = 1;
+
+	/* Send an IPI to all HARTs waiting for coldboot */
 	for (int i = 0; i < max_hart; i++) {
-		/* send an IPI to every other hart */
-		spin_lock(&coldboot_wait_bitmap_lock);
 		if ((i != hartid) && (coldboot_wait_bitmap & (1UL << i)))
 			sbi_platform_ipi_send(plat, i);
-		spin_unlock(&coldboot_wait_bitmap_lock);
 	}
+
+	/* Release coldboot lock */
+	spin_unlock(&coldboot_lock);
 }

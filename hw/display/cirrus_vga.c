@@ -35,10 +35,12 @@
 #include "qemu/osdep.h"
 #include "qemu/module.h"
 #include "qemu/units.h"
+#include "sysemu/reset.h"
 #include "qapi/error.h"
 #include "trace.h"
-#include "hw/hw.h"
 #include "hw/pci/pci.h"
+#include "hw/qdev-properties.h"
+#include "migration/vmstate.h"
 #include "ui/pixel_ops.h"
 #include "cirrus_vga_internal.h"
 
@@ -3029,7 +3031,7 @@ static void cirrus_vga_class_init(ObjectClass *klass, void *data)
     set_bit(DEVICE_CATEGORY_DISPLAY, dc->categories);
     dc->desc = "Cirrus CLGD 54xx VGA";
     dc->vmsd = &vmstate_pci_cirrus_vga;
-    dc->props = pci_vga_cirrus_properties;
+    device_class_set_props(dc, pci_vga_cirrus_properties);
     dc->hotpluggable = false;
 }
 

@@ -23,11 +23,13 @@
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
-#include "hw/hw.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
 #include "trace.h"
 #include "ui/console.h"
 #include "hw/input/hid.h"
+#include "hw/irq.h"
+#include "hw/qdev-properties.h"
 #include "qemu/error-report.h"
 #include "qemu/module.h"
 
@@ -300,7 +302,7 @@ static void milkymist_softusb_class_init(ObjectClass *klass, void *data)
     dc->realize = milkymist_softusb_realize;
     dc->reset = milkymist_softusb_reset;
     dc->vmsd = &vmstate_milkymist_softusb;
-    dc->props = milkymist_softusb_properties;
+    device_class_set_props(dc, milkymist_softusb_properties);
 }
 
 static const TypeInfo milkymist_softusb_info = {

@@ -13,6 +13,9 @@
 #include <sbi/sbi_scratch.h>
 #include <sbi/sbi_trap.h>
 
+#define BOOT_STATUS_RELOCATE_DONE	1
+#define BOOT_STATUS_BOOT_HART_DONE	2
+
 .macro	MOV_3R __d0, __s0, __d1, __s1, __d2, __s2
 	add	\__d0, \__s0, zero
 	add	\__d1, \__s1, zero
@@ -38,17 +41,26 @@
 999:
 .endm
 
-	.align 3
 	.section .entry, "ax", %progbits
+	.align 3
 	.globl _start
 	.globl _start_warm
 _start:
-	/*
-	 * Jump to warm-boot if this is not the first core booting,
-	 * that is, for mhartid != 0
-	 */
-	csrr	a6, CSR_MHARTID
-	blt	zero, a6, _wait_relocate_copy_done
+	/* Find preferred boot HART id */
+	MOV_3R	s0, a0, s1, a1, s2, a2
+	call	fw_boot_hart
+	add	a6, a0, zero
+	MOV_3R	a0, s0, a1, s1, a2, s2
+	li	a7, -1
+	beq	a6, a7, _try_lottery
+	/* Jump to relocation wait loop if we are not boot hart */
+	bne	a0, a6, _wait_relocate_copy_done
+_try_lottery:
+	/* Jump to relocation wait loop if we don't get relocation lottery */
+	la	a6, _relocate_lottery
+	li	a7, 1
+	amoadd.w a6, a7, (a6)
+	bnez	a6, _wait_relocate_copy_done
 
 	/* Save load address */
 	la	t0, _load_start
@@ -72,6 +84,8 @@ _relocate:
 	blt	t2, t0, _relocate_copy_to_upper
 _relocate_copy_to_lower:
 	ble	t1, t2, _relocate_copy_to_lower_loop
+	la	t3, _relocate_lottery
+	BRANGE	t2, t1, t3, _start_hang
 	la	t3, _boot_status
 	BRANGE	t2, t1, t3, _start_hang
 	la	t3, _relocate
@@ -88,6 +102,8 @@ _relocate_copy_to_lower_loop:
 	jr	t4
 _relocate_copy_to_upper:
 	ble	t3, t0, _relocate_copy_to_upper_loop
+	la	t2, _relocate_lottery
+	BRANGE	t0, t3, t2, _start_hang
 	la	t2, _boot_status
 	BRANGE	t0, t3, t2, _start_hang
 	la	t2, _relocate
@@ -108,26 +124,33 @@ _wait_relocate_copy_done:
 	REG_L	t1, 0(t1)
 	beq	t0, t1, _wait_for_boot_hart
 	la	t2, _boot_status
-	sub	t2, t2, t0
-	add	t2, t2, t1
 	la	t3, _wait_for_boot_hart
 	sub	t3, t3, t0
 	add	t3, t3, t1
 1:
 	/* waitting for relocate copy done (_boot_status == 1) */
-	li	t4, 1
+	li	t4, BOOT_STATUS_RELOCATE_DONE
 	REG_L	t5, 0(t2)
 	/* Reduce the bus traffic so that boot hart may proceed faster */
 	nop
 	nop
 	nop
-	bne	t4, t5, 1b
+	bgt     t4, t5, 1b
 	jr	t3
 _relocate_done:
 
-	/* mark relocate copy done */
+	/*
+	 * Mark relocate copy done
+	 * Use _boot_status copy relative to the load address
+	 */
 	la	t0, _boot_status
-	li	t1, 1
+	la	t1, _link_start
+	REG_L	t1, 0(t1)
+	la	t2, _load_start
+	REG_L	t2, 0(t2)
+	sub	t0, t0, t1
+	add	t0, t0, t2
+	li	t1, BOOT_STATUS_RELOCATE_DONE
 	REG_S	t1, 0(t0)
 	fence	rw, rw
 
@@ -302,7 +325,7 @@ _fdt_reloc_again:
 _fdt_reloc_done:
 
 	/* mark boot hart done */
-	li	t0, 2
+	li	t0, BOOT_STATUS_BOOT_HART_DONE
 	la	t1, _boot_status
 	REG_S	t0, 0(t1)
 	fence	rw, rw
@@ -310,7 +333,7 @@ _fdt_reloc_done:
 
 	/* waitting for boot hart done (_boot_status == 2) */
 _wait_for_boot_hart:
-	li	t0, 2
+	li	t0, BOOT_STATUS_BOOT_HART_DONE
 	la	t1, _boot_status
 	REG_L	t1, 0(t1)
 	/* Reduce the bus traffic so that boot hart may proceed faster */
@@ -371,6 +394,8 @@ _start_warm:
 	j	_start_hang
 
 	.align 3
+_relocate_lottery:
+	RISCV_PTR	0
 _boot_status:
 	RISCV_PTR	0
 _load_start:
@@ -380,8 +405,8 @@ _link_start:
 _link_end:
 	RISCV_PTR	_fw_reloc_end
 
-	.align 3
 	.section .entry, "ax", %progbits
+	.align 3
 	.globl _hartid_to_scratch
 _hartid_to_scratch:
 	add	sp, sp, -(3 * __SIZEOF_POINTER__)
@@ -415,15 +440,15 @@ _hartid_to_scratch:
 	add	sp, sp, (3 * __SIZEOF_POINTER__)
 	ret
 
-	.align 3
 	.section .entry, "ax", %progbits
+	.align 3
 	.globl _start_hang
 _start_hang:
 	wfi
 	j	_start_hang
 
-	.align 3
 	.section .entry, "ax", %progbits
+	.align 3
 	.globl _trap_handler
 _trap_handler:
 	/* Swap TP and MSCRATCH */
@@ -476,6 +501,16 @@ _trap_handler_all_mode:
 	REG_S	t0, SBI_TRAP_REGS_OFFSET(mepc)(sp)
 	csrr	t0, CSR_MSTATUS
 	REG_S	t0, SBI_TRAP_REGS_OFFSET(mstatus)(sp)
+	REG_S	zero, SBI_TRAP_REGS_OFFSET(mstatusH)(sp)
+#if __riscv_xlen == 32
+	csrr	t0, CSR_MISA
+	srli	t0, t0, ('H' - 'A')
+	andi	t0, t0, 0x1
+	beq	t0, zero, _skip_mstatush_save
+	csrr	t0, CSR_MSTATUSH
+	REG_S	t0, SBI_TRAP_REGS_OFFSET(mstatusH)(sp)
+_skip_mstatush_save:
+#endif
 
 	/* Save all general regisers except SP and T0 */
 	REG_S	zero, SBI_TRAP_REGS_OFFSET(zero)(sp)
@@ -550,6 +585,15 @@ _trap_handler_all_mode:
 	csrw	CSR_MEPC, t0
 	REG_L	t0, SBI_TRAP_REGS_OFFSET(mstatus)(sp)
 	csrw	CSR_MSTATUS, t0
+#if __riscv_xlen == 32
+	csrr	t0, CSR_MISA
+	srli	t0, t0, ('H' - 'A')
+	andi	t0, t0, 0x1
+	beq	t0, zero, _skip_mstatush_restore
+	REG_L	t0, SBI_TRAP_REGS_OFFSET(mstatusH)(sp)
+	csrw	CSR_MSTATUSH, t0
+_skip_mstatush_restore:
+#endif
 
 	/* Restore T0 */
 	REG_L	t0, SBI_TRAP_REGS_OFFSET(t0)(sp)
@@ -559,8 +603,8 @@ _trap_handler_all_mode:
 
 	mret
 
-	.align 3
 	.section .entry, "ax", %progbits
+	.align 3
 	.globl _reset_regs
 _reset_regs:
 

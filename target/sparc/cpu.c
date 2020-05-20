@@ -28,14 +28,14 @@
 
 //#define DEBUG_FEATURES
 
-/* CPUClass::reset() */
-static void sparc_cpu_reset(CPUState *s)
+static void sparc_cpu_reset(DeviceState *dev)
 {
+    CPUState *s = CPU(dev);
     SPARCCPU *cpu = SPARC_CPU(s);
     SPARCCPUClass *scc = SPARC_CPU_GET_CLASS(cpu);
     CPUSPARCState *env = &cpu->env;
 
-    scc->parent_reset(s);
+    scc->parent_reset(dev);
 
     memset(env, 0, offsetof(CPUSPARCState, end_reset_fields));
     env->cwp = 0;
@@ -857,10 +857,9 @@ static void sparc_cpu_class_init(ObjectClass *oc, void *data)
 
     device_class_set_parent_realize(dc, sparc_cpu_realizefn,
                                     &scc->parent_realize);
-    dc->props = sparc_cpu_properties;
+    device_class_set_props(dc, sparc_cpu_properties);
 
-    scc->parent_reset = cc->reset;
-    cc->reset = sparc_cpu_reset;
+    device_class_set_parent_reset(dc, sparc_cpu_reset, &scc->parent_reset);
 
     cc->class_by_name = sparc_cpu_class_by_name;
     cc->parse_features = sparc_cpu_parse_features;
@@ -877,7 +876,7 @@ static void sparc_cpu_class_init(ObjectClass *oc, void *data)
     cc->gdb_write_register = sparc_cpu_gdb_write_register;
     cc->tlb_fill = sparc_cpu_tlb_fill;
 #ifndef CONFIG_USER_ONLY
-    cc->do_unassigned_access = sparc_cpu_unassigned_access;
+    cc->do_transaction_failed = sparc_cpu_do_transaction_failed;
     cc->do_unaligned_access = sparc_cpu_do_unaligned_access;
     cc->get_phys_page_debug = sparc_cpu_get_phys_page_debug;
     cc->vmsd = &vmstate_sparc_cpu;

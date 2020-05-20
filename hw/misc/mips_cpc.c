@@ -23,8 +23,10 @@
 #include "qemu/log.h"
 #include "qemu/module.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
 
 #include "hw/misc/mips_cpc.h"
+#include "hw/qdev-properties.h"
 
 static inline uint64_t cpc_vp_run_mask(MIPSCPCState *cpc)
 {
@@ -173,7 +175,7 @@ static void mips_cpc_class_init(ObjectClass *klass, void *data)
     dc->realize = mips_cpc_realize;
     dc->reset = mips_cpc_reset;
     dc->vmsd = &vmstate_mips_cpc;
-    dc->props = mips_cpc_properties;
+    device_class_set_props(dc, mips_cpc_properties);
 }
 
 static const TypeInfo mips_cpc_info = {

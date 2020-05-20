@@ -1,11 +1,11 @@
 #include "qemu/osdep.h"
-#include "hw/hw.h"
+#include "hw/qdev-properties.h"
 #include "hw/usb.h"
-#include "hw/qdev.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "qemu/module.h"
 #include "sysemu/sysemu.h"
+#include "migration/vmstate.h"
 #include "monitor/monitor.h"
 #include "trace.h"
 #include "qemu/cutils.h"
@@ -768,7 +768,7 @@ static void usb_device_class_init(ObjectClass *klass, void *data)
     k->bus_type = TYPE_USB_BUS;
     k->realize  = usb_qdev_realize;
     k->unrealize = usb_qdev_unrealize;
-    k->props    = usb_props;
+    device_class_set_props(k, usb_props);
 }
 
 static const TypeInfo usb_device_type_info = {

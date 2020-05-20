@@ -30,12 +30,12 @@
 #include "qapi/error.h"
 #include "cpu.h"
 #include "hw/sysbus.h"
-#include "hw/hw.h"
 #include "net/net.h"
 #include "hw/block/flash.h"
 #include "sysemu/sysemu.h"
 #include "hw/boards.h"
 #include "hw/char/serial.h"
+#include "hw/qdev-properties.h"
 #include "exec/address-spaces.h"
 #include "hw/ssi/ssi.h"
 
@@ -216,7 +216,6 @@ static void petalogix_ml605_machine_init(MachineClass *mc)
 {
     mc->desc = "PetaLogix linux refdesign for xilinx ml605 little endian";
     mc->init = petalogix_ml605_init;
-    mc->is_default = 0;
 }
 
 DEFINE_MACHINE("petalogix-ml605", petalogix_ml605_machine_init)

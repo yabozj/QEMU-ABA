@@ -22,11 +22,11 @@
 
 enum {
     /*
-     * Size of data buffer for populating the image file.  This should be large
-     * enough to process multiple clusters in a single call, so that populating
-     * contiguous regions of the image is efficient.
+     * Maximum chunk size to feed to copy-on-read.  This should be
+     * large enough to process multiple clusters in a single call, so
+     * that populating contiguous regions of the image is efficient.
      */
-    STREAM_BUFFER_SIZE = 512 * 1024, /* in bytes */
+    STREAM_CHUNK = 512 * 1024, /* in bytes */
 };
 
 typedef struct StreamBlockJob {
@@ -39,13 +39,12 @@ typedef struct StreamBlockJob {
 } StreamBlockJob;
 
 static int coroutine_fn stream_populate(BlockBackend *blk,
-                                        int64_t offset, uint64_t bytes,
-                                        void *buf)
+                                        int64_t offset, uint64_t bytes)
 {
     assert(bytes < SIZE_MAX);
 
-    /* Copy-on-read the unallocated clusters */
-    return blk_co_pread(blk, offset, bytes, buf, BDRV_REQ_COPY_ON_READ);
+    return blk_co_preadv(blk, offset, bytes, NULL,
+                         BDRV_REQ_COPY_ON_READ | BDRV_REQ_PREFETCH);
 }
 
 static void stream_abort(Job *job)
@@ -115,9 +114,7 @@ static int coroutine_fn stream_run(Job *job, Error **errp)
     int64_t offset = 0;
     uint64_t delay_ns = 0;
     int error = 0;
-    int ret = 0;
     int64_t n = 0; /* bytes */
-    void *buf;
 
     if (bs == s->bottom) {
         /* Nothing to stream */
@@ -130,8 +127,6 @@ static int coroutine_fn stream_run(Job *job, Error **errp)
     }
     job_progress_set_remaining(&s->common.job, len);
 
-    buf = qemu_blockalign(bs, STREAM_BUFFER_SIZE);
-
     /* Turn on copy-on-read for the whole block device so that guest read
      * requests help us make progress.  Only do this when copying the entire
      * backing chain since the copy-on-read operation does not take base into
@@ -143,6 +138,7 @@ static int coroutine_fn stream_run(Job *job, Error **errp)
 
     for ( ; offset < len; offset += n) {
         bool copy;
+        int ret;
 
         /* Note that even when no rate limit is applied we need to yield
          * with no pending I/O here so that bdrv_drain_all() returns.
@@ -154,7 +150,7 @@ static int coroutine_fn stream_run(Job *job, Error **errp)
 
         copy = false;
 
-        ret = bdrv_is_allocated(bs, offset, STREAM_BUFFER_SIZE, &n);
+        ret = bdrv_is_allocated(bs, offset, STREAM_CHUNK, &n);
         if (ret == 1) {
             /* Allocated in the top, no need to copy.  */
         } else if (ret >= 0) {
@@ -171,7 +167,7 @@ static int coroutine_fn stream_run(Job *job, Error **errp)
         }
         trace_stream_one_iteration(s, offset, n, ret);
         if (copy) {
-            ret = stream_populate(blk, offset, n, buf);
+            ret = stream_populate(blk, offset, n);
         }
         if (ret < 0) {
             BlockErrorAction action =
@@ -187,7 +183,6 @@ static int coroutine_fn stream_run(Job *job, Error **errp)
                 break;
             }
         }
-        ret = 0;
 
         /* Publish progress */
         job_progress_update(&s->common.job, n);
@@ -201,8 +196,6 @@ static int coroutine_fn stream_run(Job *job, Error **errp)
     if (enable_cor) {
         bdrv_disable_copy_on_read(bs);
     }
-
-    qemu_vfree(buf);
 
     /* Do not remove the backing file if an error was there but ignored. */
     return error;
@@ -218,7 +211,6 @@ static const BlockJobDriver stream_job_driver = {
         .abort         = stream_abort,
         .clean         = stream_clean,
         .user_resume   = block_job_user_resume,
-        .drain         = block_job_drain,
     },
 };
 

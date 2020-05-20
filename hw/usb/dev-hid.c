@@ -24,14 +24,15 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/hw.h"
 #include "ui/console.h"
 #include "hw/usb.h"
+#include "migration/vmstate.h"
 #include "desc.h"
 #include "qapi/error.h"
 #include "qemu/module.h"
 #include "qemu/timer.h"
 #include "hw/input/hid.h"
+#include "hw/qdev-properties.h"
 
 /* HID interface requests */
 #define GET_REPORT   0xa101
@@ -818,7 +819,7 @@ static void usb_tablet_class_initfn(ObjectClass *klass, void *data)
     uc->realize        = usb_tablet_realize;
     uc->product_desc   = "QEMU USB Tablet";
     dc->vmsd = &vmstate_usb_ptr;
-    dc->props = usb_tablet_properties;
+    device_class_set_props(dc, usb_tablet_properties);
     set_bit(DEVICE_CATEGORY_INPUT, dc->categories);
 }
 
@@ -841,7 +842,7 @@ static void usb_mouse_class_initfn(ObjectClass *klass, void *data)
     uc->realize        = usb_mouse_realize;
     uc->product_desc   = "QEMU USB Mouse";
     dc->vmsd = &vmstate_usb_ptr;
-    dc->props = usb_mouse_properties;
+    device_class_set_props(dc, usb_mouse_properties);
     set_bit(DEVICE_CATEGORY_INPUT, dc->categories);
 }
 
@@ -865,7 +866,7 @@ static void usb_keyboard_class_initfn(ObjectClass *klass, void *data)
     uc->realize        = usb_keyboard_realize;
     uc->product_desc   = "QEMU USB Keyboard";
     dc->vmsd = &vmstate_usb_kbd;
-    dc->props = usb_keyboard_properties;
+    device_class_set_props(dc, usb_keyboard_properties);
     set_bit(DEVICE_CATEGORY_INPUT, dc->categories);
 }
 

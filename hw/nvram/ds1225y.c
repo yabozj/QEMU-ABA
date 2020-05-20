@@ -23,7 +23,9 @@
  */
 
 #include "qemu/osdep.h"
+#include "hw/qdev-properties.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
 #include "trace.h"
 #include "qemu/error-report.h"
 #include "qemu/module.h"
@@ -151,7 +153,7 @@ static void nvram_sysbus_class_init(ObjectClass *klass, void *data)
 
     dc->realize = nvram_sysbus_realize;
     dc->vmsd = &vmstate_nvram;
-    dc->props = nvram_sysbus_properties;
+    device_class_set_props(dc, nvram_sysbus_properties);
 }
 
 static const TypeInfo nvram_sysbus_info = {

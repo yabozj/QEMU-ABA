@@ -14,6 +14,7 @@
 
 typedef void (*XenWatchHandler)(void *opaque);
 
+typedef struct XenWatchList XenWatchList;
 typedef struct XenWatch XenWatch;
 typedef struct XenEventChannel XenEventChannel;
 
@@ -21,6 +22,8 @@ typedef struct XenDevice {
     DeviceState qdev;
     domid_t frontend_id;
     char *name;
+    struct xs_handle *xsh;
+    XenWatchList *watch_list;
     char *backend_path, *frontend_path;
     enum xenbus_state backend_state, frontend_state;
     Notifier exit;
@@ -29,7 +32,9 @@ typedef struct XenDevice {
     XenWatch *backend_online_watch;
     xengnttab_handle *xgth;
     bool feature_grant_copy;
+    bool inactive;
     QLIST_HEAD(, XenEventChannel) event_channels;
+    QLIST_ENTRY(XenDevice) list;
 } XenDevice;
 
 typedef char *(*XenDeviceGetName)(XenDevice *xendev, Error **errp);
@@ -63,8 +68,9 @@ typedef struct XenBus {
     BusState qbus;
     domid_t backend_id;
     struct xs_handle *xsh;
-    NotifierList watch_notifiers;
+    XenWatchList *watch_list;
     XenWatch *backend_watch;
+    QLIST_HEAD(, XenDevice) inactive_devices;
 } XenBus;
 
 typedef struct XenBusClass {
@@ -122,10 +128,13 @@ void xen_device_copy_grant_refs(XenDevice *xendev, bool to_domain,
 typedef bool (*XenEventHandler)(void *opaque);
 
 XenEventChannel *xen_device_bind_event_channel(XenDevice *xendev,
-                                               AioContext *ctx,
                                                unsigned int port,
                                                XenEventHandler handler,
                                                void *opaque, Error **errp);
+void xen_device_set_event_channel_context(XenDevice *xendev,
+                                          XenEventChannel *channel,
+                                          AioContext *ctx,
+                                          Error **errp);
 void xen_device_notify_event_channel(XenDevice *xendev,
                                      XenEventChannel *channel,
                                      Error **errp);

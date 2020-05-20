@@ -18,7 +18,9 @@
 #include "hw/acpi/aml-build.h"
 #include "hw/acpi/vmgenid.h"
 #include "hw/nvram/fw_cfg.h"
-#include "sysemu/sysemu.h"
+#include "hw/qdev-properties.h"
+#include "migration/vmstate.h"
+#include "sysemu/reset.h"
 
 void vmgenid_build_acpi(VmGenIdState *vms, GArray *table_data, GArray *guid,
                         BIOSLinker *linker)
@@ -224,7 +226,7 @@ static void vmgenid_device_class_init(ObjectClass *klass, void *data)
 
     dc->vmsd = &vmstate_vmgenid;
     dc->realize = vmgenid_realize;
-    dc->props = vmgenid_device_properties;
+    device_class_set_props(dc, vmgenid_device_properties);
     dc->hotpluggable = false;
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
 }

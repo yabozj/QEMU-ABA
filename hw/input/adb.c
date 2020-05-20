@@ -24,6 +24,8 @@
 
 #include "qemu/osdep.h"
 #include "hw/input/adb.h"
+#include "hw/qdev-properties.h"
+#include "migration/vmstate.h"
 #include "qemu/module.h"
 #include "adb-internal.h"
 
@@ -126,7 +128,7 @@ static void adb_device_class_init(ObjectClass *oc, void *data)
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = adb_device_realizefn;
-    dc->props = adb_device_properties;
+    device_class_set_props(dc, adb_device_properties);
     dc->bus_type = TYPE_ADB_BUS;
 }
 

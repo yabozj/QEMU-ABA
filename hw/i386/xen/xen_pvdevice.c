@@ -32,8 +32,9 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/module.h"
-#include "hw/hw.h"
 #include "hw/pci/pci.h"
+#include "hw/qdev-properties.h"
+#include "migration/vmstate.h"
 #include "trace.h"
 
 #define TYPE_XEN_PV_DEVICE  "xen-pvdevice"
@@ -130,7 +131,7 @@ static void xen_pv_class_init(ObjectClass *klass, void *data)
     k->realize = xen_pv_realize;
     k->class_id = PCI_CLASS_SYSTEM_OTHER;
     dc->desc = "Xen PV Device";
-    dc->props = xen_pv_props;
+    device_class_set_props(dc, xen_pv_props);
     dc->vmsd = &vmstate_xen_pvdevice;
 }
 

@@ -26,11 +26,13 @@
 
 #include "qemu/osdep.h"
 #include "hw/sysbus.h"
-#include "sysemu/sysemu.h"
+#include "migration/vmstate.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
 #include "qemu/fifo8.h"
 
+#include "hw/irq.h"
+#include "hw/qdev-properties.h"
 #include "hw/ssi/ssi.h"
 
 #ifdef XILINX_SPI_ERR_DEBUG
@@ -370,7 +372,7 @@ static void xilinx_spi_class_init(ObjectClass *klass, void *data)
 
     dc->realize = xilinx_spi_realize;
     dc->reset = xlx_spi_reset;
-    dc->props = xilinx_spi_properties;
+    device_class_set_props(dc, xilinx_spi_properties);
     dc->vmsd = &vmstate_xilinx_spi;
 }
 

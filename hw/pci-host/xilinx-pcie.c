@@ -22,6 +22,8 @@
 #include "qemu/units.h"
 #include "qapi/error.h"
 #include "hw/pci/pci_bridge.h"
+#include "hw/qdev-properties.h"
+#include "hw/irq.h"
 #include "hw/pci-host/xilinx-pcie.h"
 
 enum root_cfg_reg {
@@ -175,7 +177,7 @@ static void xilinx_pcie_host_class_init(ObjectClass *klass, void *data)
     dc->realize = xilinx_pcie_host_realize;
     set_bit(DEVICE_CATEGORY_BRIDGE, dc->categories);
     dc->fw_name = "pci";
-    dc->props = xilinx_pcie_host_props;
+    device_class_set_props(dc, xilinx_pcie_host_props);
 }
 
 static const TypeInfo xilinx_pcie_host_info = {

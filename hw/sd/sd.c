@@ -32,11 +32,11 @@
 
 #include "qemu/osdep.h"
 #include "qemu/units.h"
-#include "hw/qdev.h"
-#include "hw/hw.h"
+#include "hw/irq.h"
 #include "hw/registerfields.h"
 #include "sysemu/block-backend.h"
 #include "hw/sd/sd.h"
+#include "migration/vmstate.h"
 #include "qapi/error.h"
 #include "qemu/bitmap.h"
 #include "hw/qdev-properties.h"
@@ -2118,7 +2118,7 @@ static void sd_class_init(ObjectClass *klass, void *data)
     SDCardClass *sc = SD_CARD_CLASS(klass);
 
     dc->realize = sd_realize;
-    dc->props = sd_properties;
+    device_class_set_props(dc, sd_properties);
     dc->vmsd = &sd_vmstate;
     dc->reset = sd_reset;
     dc->bus_type = TYPE_SD_BUS;

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 #
 # Mini-Kconfig parser
 #
@@ -10,7 +11,6 @@
 # or, at your option, any later version.  See the COPYING file in
 # the top-level directory.
 
-from __future__ import print_function
 import os
 import sys
 import re
@@ -645,7 +645,7 @@ class KconfigParser:
             self.cursor = self.src.find('\n', self.cursor)
             self.val = self.src[start:self.cursor]
             return TOK_SOURCE
-        elif self.tok.isalpha():
+        elif self.tok.isalnum():
             # identifier
             while self.src[self.cursor].isalnum() or self.src[self.cursor] == '_':
                 self.cursor += 1
@@ -702,8 +702,8 @@ if __name__ == '__main__':
 
     config = data.compute_config()
     for key in sorted(config.keys()):
-        if key not in external_vars:
-            print ('CONFIG_%s=%s' % (key, ('y' if config[key] else 'n')))
+        if key not in external_vars and config[key]:
+            print ('CONFIG_%s=y' % key)
 
     deps = open(argv[2], 'w')
     for fname in data.previously_included:

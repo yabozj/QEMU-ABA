@@ -25,13 +25,13 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/hw.h"
 #include "hw/isa/isa.h"
 #include "vga_int.h"
 #include "ui/pixel_ops.h"
 #include "qemu/module.h"
 #include "qemu/timer.h"
 #include "hw/loader.h"
+#include "hw/qdev-properties.h"
 
 #define TYPE_ISA_VGA "isa-vga"
 #define ISA_VGA(obj) OBJECT_CHECK(ISAVGAState, (obj), TYPE_ISA_VGA)
@@ -76,7 +76,9 @@ static void vga_isa_realizefn(DeviceState *dev, Error **errp)
     memory_region_set_coalescing(vga_io_memory);
     s->con = graphic_console_init(DEVICE(dev), 0, s->hw_ops, s);
 
-    vga_init_vbe(s, OBJECT(dev), isa_address_space(isadev));
+    memory_region_add_subregion(isa_address_space(isadev),
+                                VBE_DISPI_LFB_PHYSICAL_ADDRESS,
+                                &s->vram);
     /* ROM BIOS */
     rom_add_vga(VGABIOS_FILENAME);
 }
@@ -93,7 +95,7 @@ static void vga_isa_class_initfn(ObjectClass *klass, void *data)
     dc->realize = vga_isa_realizefn;
     dc->reset = vga_isa_reset;
     dc->vmsd = &vmstate_vga_common;
-    dc->props = vga_isa_properties;
+    device_class_set_props(dc, vga_isa_properties);
     set_bit(DEVICE_CATEGORY_DISPLAY, dc->categories);
 }
 

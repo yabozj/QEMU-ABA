@@ -94,7 +94,7 @@ typedef struct CPUTLGState {
     struct {} end_reset_fields;
 } CPUTLGState;
 
-#include "qom/cpu.h"
+#include "hw/core/cpu.h"
 
 #define TYPE_TILEGX_CPU "tilegx-cpu"
 
@@ -118,7 +118,7 @@ typedef struct TileGXCPUClass {
     /*< public >*/
 
     DeviceRealize parent_realize;
-    void (*parent_reset)(CPUState *cpu);
+    DeviceReset parent_reset;
 } TileGXCPUClass;
 
 /**

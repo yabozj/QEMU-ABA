@@ -36,7 +36,7 @@
 #define SBI_SCRATCH_OPTIONS_OFFSET		(9 * __SIZEOF_POINTER__)
 /** Offset of extra space in sbi_scratch */
 #define SBI_SCRATCH_EXTRA_SPACE_OFFSET		(10 * __SIZEOF_POINTER__)
-/** Maximum size of sbi_scratch and sbi_ipi_data */
+/** Maximum size of sbi_scratch */
 #define SBI_SCRATCH_SIZE			(64 * __SIZEOF_POINTER__)
 
 /* clang-format on */
@@ -44,7 +44,6 @@
 #ifndef __ASSEMBLY__
 
 #include <sbi/sbi_types.h>
-#include <sbi/sbi_ipi.h>
 
 /** Representation of per-HART scratch space */
 struct sbi_scratch {
@@ -74,6 +73,8 @@ struct sbi_scratch {
 enum sbi_scratch_options {
 	/** Disable prints during boot */
 	SBI_SCRATCH_NO_BOOT_PRINTS = (1 << 0),
+	/** Enable runtime debug prints */
+	SBI_SCRATCH_DEBUG_PRINTS = (1 << 1),
 };
 
 /** Get pointer to sbi_scratch for current HART */

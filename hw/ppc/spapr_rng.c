@@ -21,11 +21,12 @@
 #include "qapi/error.h"
 #include "cpu.h"
 #include "qemu/error-report.h"
+#include "qemu/main-loop.h"
 #include "qemu/module.h"
-#include "sysemu/sysemu.h"
 #include "sysemu/device_tree.h"
 #include "sysemu/rng.h"
 #include "hw/ppc/spapr.h"
+#include "hw/qdev-properties.h"
 #include "kvm_ppc.h"
 
 #define SPAPR_RNG(obj) \
@@ -145,7 +146,7 @@ static void spapr_rng_class_init(ObjectClass *oc, void *data)
 
     dc->realize = spapr_rng_realize;
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
-    dc->props = spapr_rng_properties;
+    device_class_set_props(dc, spapr_rng_properties);
     dc->hotpluggable = false;
 }
 

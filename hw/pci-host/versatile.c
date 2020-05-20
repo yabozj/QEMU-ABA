@@ -9,9 +9,12 @@
 
 #include "qemu/osdep.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
+#include "hw/irq.h"
 #include "hw/pci/pci.h"
 #include "hw/pci/pci_bus.h"
 #include "hw/pci/pci_host.h"
+#include "hw/qdev-properties.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
 
@@ -506,7 +509,7 @@ static void pci_vpb_class_init(ObjectClass *klass, void *data)
     dc->realize = pci_vpb_realize;
     dc->reset = pci_vpb_reset;
     dc->vmsd = &pci_vpb_vmstate;
-    dc->props = pci_vpb_properties;
+    device_class_set_props(dc, pci_vpb_properties);
 }
 
 static const TypeInfo pci_vpb_info = {

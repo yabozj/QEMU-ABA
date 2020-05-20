@@ -28,9 +28,10 @@
 #include "qemu/osdep.h"
 #include "qemu/units.h"
 #include "hw/block/block.h"
-#include "hw/hw.h"
 #include "hw/pci/msix.h"
 #include "hw/pci/pci.h"
+#include "hw/qdev-properties.h"
+#include "migration/vmstate.h"
 #include "sysemu/sysemu.h"
 #include "qapi/error.h"
 #include "qapi/visitor.h"
@@ -1474,7 +1475,7 @@ static void nvme_class_init(ObjectClass *oc, void *data)
 
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     dc->desc = "Non-Volatile Memory Express";
-    dc->props = nvme_props;
+    device_class_set_props(dc, nvme_props);
     dc->vmsd = &nvme_vmstate;
 }
 

@@ -28,7 +28,6 @@ typedef struct XlnxZCU102 {
     MachineState parent_obj;
 
     XlnxZynqMPState soc;
-    MemoryRegion ddr_ram;
 
     bool secure;
     bool virt;
@@ -87,13 +86,10 @@ static void xlnx_zcu102_init(MachineState *machine)
                  ram_size);
     }
 
-    memory_region_allocate_system_memory(&s->ddr_ram, NULL, "ddr-ram",
-                                         ram_size);
-
     object_initialize_child(OBJECT(machine), "soc", &s->soc, sizeof(s->soc),
                             TYPE_XLNX_ZYNQMP, &error_abort, NULL);
 
-    object_property_set_link(OBJECT(&s->soc), OBJECT(&s->ddr_ram),
+    object_property_set_link(OBJECT(&s->soc), OBJECT(machine->ram),
                          "ddr-ram", &error_abort);
     object_property_set_bool(OBJECT(&s->soc), s->secure, "secure",
                              &error_fatal);
@@ -171,11 +167,8 @@ static void xlnx_zcu102_init(MachineState *machine)
     /* TODO create and connect IDE devices for ide_drive_get() */
 
     xlnx_zcu102_binfo.ram_size = ram_size;
-    xlnx_zcu102_binfo.kernel_filename = machine->kernel_filename;
-    xlnx_zcu102_binfo.kernel_cmdline = machine->kernel_cmdline;
-    xlnx_zcu102_binfo.initrd_filename = machine->initrd_filename;
     xlnx_zcu102_binfo.loader_start = 0;
-    arm_load_kernel(s->soc.boot_cpu_ptr, &xlnx_zcu102_binfo);
+    arm_load_kernel(s->soc.boot_cpu_ptr, machine, &xlnx_zcu102_binfo);
 }
 
 static void xlnx_zcu102_machine_instance_init(Object *obj)
@@ -214,6 +207,7 @@ static void xlnx_zcu102_machine_class_init(ObjectClass *oc, void *data)
     mc->ignore_memory_transaction_failures = true;
     mc->max_cpus = XLNX_ZYNQMP_NUM_APU_CPUS + XLNX_ZYNQMP_NUM_RPU_CPUS;
     mc->default_cpus = XLNX_ZYNQMP_NUM_APU_CPUS;
+    mc->default_ram_id = "ddr-ram";
 }
 
 static const TypeInfo xlnx_zcu102_machine_init_typeinfo = {

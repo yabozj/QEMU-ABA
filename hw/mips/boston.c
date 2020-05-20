@@ -23,7 +23,6 @@
 #include "exec/address-spaces.h"
 #include "hw/boards.h"
 #include "hw/char/serial.h"
-#include "hw/hw.h"
 #include "hw/ide/pci.h"
 #include "hw/ide/ahci.h"
 #include "hw/loader.h"
@@ -31,6 +30,7 @@
 #include "hw/mips/cps.h"
 #include "hw/mips/cpudevs.h"
 #include "hw/pci-host/xilinx-pcie.h"
+#include "hw/qdev-properties.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "qemu/log.h"
@@ -38,6 +38,7 @@
 #include "sysemu/device_tree.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/qtest.h"
+#include "sysemu/runstate.h"
 
 #include <libfdt.h>
 
@@ -49,7 +50,7 @@ typedef struct {
 
     MachineState *mach;
     MIPSCPSState cps;
-    SerialState *uart;
+    SerialMM *uart;
 
     CharBackend lcd_display;
     char lcd_content[8];
@@ -97,7 +98,7 @@ enum boston_plat_reg {
     PLAT_SYS_CTL        = 0x48,
 };
 
-static void boston_lcd_event(void *opaque, int event)
+static void boston_lcd_event(void *opaque, QEMUChrEvent event)
 {
     BostonState *s = opaque;
     if (event == CHR_EVENT_OPENED && !s->lcd_inited) {
@@ -426,7 +427,7 @@ static void boston_mach_init(MachineState *machine)
     DeviceState *dev;
     BostonState *s;
     Error *err = NULL;
-    MemoryRegion *flash, *ddr, *ddr_low_alias, *lcd, *platreg;
+    MemoryRegion *flash, *ddr_low_alias, *lcd, *platreg;
     MemoryRegion *sys_mem = get_system_memory();
     XilinxPCIEHost *pcie2;
     PCIDevice *ahci;
@@ -472,14 +473,12 @@ static void boston_mach_init(MachineState *machine)
     memory_region_init_rom(flash, NULL, "boston.flash", 128 * MiB, &err);
     memory_region_add_subregion_overlap(sys_mem, 0x18000000, flash, 0);
 
-    ddr = g_new(MemoryRegion, 1);
-    memory_region_allocate_system_memory(ddr, NULL, "boston.ddr",
-                                         machine->ram_size);
-    memory_region_add_subregion_overlap(sys_mem, 0x80000000, ddr, 0);
+    memory_region_add_subregion_overlap(sys_mem, 0x80000000, machine->ram, 0);
 
     ddr_low_alias = g_new(MemoryRegion, 1);
     memory_region_init_alias(ddr_low_alias, NULL, "boston_low.ddr",
-                             ddr, 0, MIN(machine->ram_size, (256 * MiB)));
+                             machine->ram, 0,
+                             MIN(machine->ram_size, (256 * MiB)));
     memory_region_add_subregion_overlap(sys_mem, 0, ddr_low_alias, 0);
 
     xilinx_pcie_init(sys_mem, 0,
@@ -551,6 +550,7 @@ static void boston_mach_class_init(MachineClass *mc)
     mc->init = boston_mach_init;
     mc->block_default_type = IF_IDE;
     mc->default_ram_size = 1 * GiB;
+    mc->default_ram_id = "boston.ddr";
     mc->max_cpus = 16;
     mc->default_cpu_type = MIPS_CPU_TYPE_NAME("I6400");
 }

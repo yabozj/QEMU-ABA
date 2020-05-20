@@ -5,7 +5,7 @@
  * Copyright (c) 2011-2012 Andreas Färber
  * Copyright (c) 2018 Philippe Mathieu-Daudé
  *
- * This code is licensed under the GNU GPLv2 and later.
+ * This work is licensed under the terms of the GNU GPL, version 2 or later.
  * See the COPYING file in the top-level directory.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -18,6 +18,7 @@
 #include "sysemu/blockdev.h"
 #include "chardev/char.h"
 #include "hw/isa/superio.h"
+#include "hw/qdev-properties.h"
 #include "hw/input/i8042.h"
 #include "hw/char/serial.h"
 #include "trace.h"

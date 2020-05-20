@@ -33,20 +33,6 @@
 #else
 #include "exec/poison.h"
 #endif
-#ifdef __COVERITY__
-/* Coverity does not like the new _Float* types that are used by
- * recent glibc, and croaks on every single file that includes
- * stdlib.h.  These typedefs are enough to please it.
- *
- * Note that these fix parse errors so they cannot be placed in
- * scripts/coverity-model.c.
- */
-typedef float _Float32;
-typedef double _Float32x;
-typedef double _Float64;
-typedef __float80 _Float64x;
-typedef __float128 _Float128;
-#endif
 
 #include "qemu/compiler.h"
 
@@ -423,9 +409,9 @@ void qemu_anon_ram_free(void *ptr, size_t size);
 #  define QEMU_VMALLOC_ALIGN (256 * 4096)
 #elif defined(__linux__) && defined(__sparc__)
 #include <sys/shm.h>
-#  define QEMU_VMALLOC_ALIGN MAX(getpagesize(), SHMLBA)
+#  define QEMU_VMALLOC_ALIGN MAX(qemu_real_host_page_size, SHMLBA)
 #else
-#  define QEMU_VMALLOC_ALIGN getpagesize()
+#  define QEMU_VMALLOC_ALIGN qemu_real_host_page_size
 #endif
 
 #ifdef CONFIG_POSIX
@@ -462,6 +448,7 @@ int qemu_mprotect_none(void *addr, size_t size);
 
 int qemu_open(const char *name, int flags, ...);
 int qemu_close(int fd);
+int qemu_unlink(const char *name);
 #ifndef _WIN32
 int qemu_dup(int fd);
 #endif
@@ -569,19 +556,6 @@ void qemu_set_tty_echo(int fd, bool echo);
 
 void os_mem_prealloc(int fd, char *area, size_t sz, int smp_cpus,
                      Error **errp);
-
-/**
- * qemu_get_pmem_size:
- * @filename: path to a pmem file
- * @errp: pointer to a NULL-initialized error object
- *
- * Determine the size of a persistent memory file.  Besides supporting files on
- * DAX file systems, this function also supports Linux devdax character
- * devices.
- *
- * Returns: the size or 0 on failure
- */
-uint64_t qemu_get_pmem_size(const char *filename, Error **errp);
 
 /**
  * qemu_get_pid_name:

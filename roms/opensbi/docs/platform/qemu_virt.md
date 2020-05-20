@@ -15,8 +15,8 @@ Platform Options
 The *QEMU RISC-V Virt Machine* platform does not have any platform-specific
 options.
 
-Execution on QEMU RISC-V 64bit
-------------------------------
+Execution on QEMU RISC-V 64-bit
+-------------------------------
 
 **No Payload Case**
 
@@ -82,8 +82,8 @@ qemu-system-riscv64 -M virt -m 256M -nographic \
 ```
 
 
-Execution on QEMU RISC-V 32bit
-------------------------------
+Execution on QEMU RISC-V 32-bit
+-------------------------------
 
 **No Payload Case**
 
@@ -149,4 +149,3 @@ qemu-system-riscv32 -M virt -m 256M -nographic \
 	-device virtio-blk-device,drive=hd0 \
 	-append "root=/dev/vda rw console=ttyS0"
 ```
-

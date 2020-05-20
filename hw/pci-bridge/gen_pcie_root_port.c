@@ -15,6 +15,8 @@
 #include "qemu/module.h"
 #include "hw/pci/msix.h"
 #include "hw/pci/pcie_port.h"
+#include "hw/qdev-properties.h"
+#include "migration/vmstate.h"
 
 #define TYPE_GEN_PCIE_ROOT_PORT                "pcie-root-port"
 #define GEN_PCIE_ROOT_PORT(obj) \
@@ -145,7 +147,7 @@ static void gen_rp_dev_class_init(ObjectClass *klass, void *data)
     k->device_id = PCI_DEVICE_ID_REDHAT_PCIE_RP;
     dc->desc = "PCI Express Root Port";
     dc->vmsd = &vmstate_rp_dev;
-    dc->props = gen_rp_props;
+    device_class_set_props(dc, gen_rp_props);
 
     device_class_set_parent_realize(dc, gen_rp_realize, &rpc->parent_realize);
 

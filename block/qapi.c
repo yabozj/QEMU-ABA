@@ -23,7 +23,7 @@
  */
 
 #include "qemu/osdep.h"
-#include "qemu-common.h"
+#include "qemu/cutils.h"
 #include "block/qapi.h"
 #include "block/block_int.h"
 #include "block/throttle-groups.h"
@@ -42,7 +42,9 @@
 #include "qemu/cutils.h"
 
 BlockDeviceInfo *bdrv_block_device_info(BlockBackend *blk,
-                                        BlockDriverState *bs, Error **errp)
+                                        BlockDriverState *bs,
+                                        bool flat,
+                                        Error **errp)
 {
     ImageInfo **p_image_info;
     BlockDriverState *bs0;
@@ -77,6 +79,11 @@ BlockDeviceInfo *bdrv_block_device_info(BlockBackend *blk,
     if (bs->backing_file[0]) {
         info->has_backing_file = true;
         info->backing_file = g_strdup(bs->backing_file);
+    }
+
+    if (!QLIST_EMPTY(&bs->dirty_bitmaps)) {
+        info->has_dirty_bitmaps = true;
+        info->dirty_bitmaps = bdrv_query_dirty_bitmaps(bs);
     }
 
     info->detect_zeroes = bs->detect_zeroes;
@@ -149,6 +156,11 @@ BlockDeviceInfo *bdrv_block_device_info(BlockBackend *blk,
             error_propagate(errp, local_err);
             qapi_free_BlockDeviceInfo(info);
             return NULL;
+        }
+
+        /* stop gathering data for flat output */
+        if (flat) {
+            break;
         }
 
         if (bs0->drv && bs0->backing) {
@@ -384,7 +396,7 @@ static void bdrv_query_info(BlockBackend *blk, BlockInfo **p_info,
 
     if (bs && bs->drv) {
         info->has_inserted = true;
-        info->inserted = bdrv_block_device_info(blk, bs, errp);
+        info->inserted = bdrv_block_device_info(blk, bs, false, errp);
         if (info->inserted == NULL) {
             goto err;
         }
@@ -435,24 +447,30 @@ static void bdrv_query_blk_stats(BlockDeviceStats *ds, BlockBackend *blk)
 
     ds->rd_bytes = stats->nr_bytes[BLOCK_ACCT_READ];
     ds->wr_bytes = stats->nr_bytes[BLOCK_ACCT_WRITE];
+    ds->unmap_bytes = stats->nr_bytes[BLOCK_ACCT_UNMAP];
     ds->rd_operations = stats->nr_ops[BLOCK_ACCT_READ];
     ds->wr_operations = stats->nr_ops[BLOCK_ACCT_WRITE];
+    ds->unmap_operations = stats->nr_ops[BLOCK_ACCT_UNMAP];
 
     ds->failed_rd_operations = stats->failed_ops[BLOCK_ACCT_READ];
     ds->failed_wr_operations = stats->failed_ops[BLOCK_ACCT_WRITE];
     ds->failed_flush_operations = stats->failed_ops[BLOCK_ACCT_FLUSH];
+    ds->failed_unmap_operations = stats->failed_ops[BLOCK_ACCT_UNMAP];
 
     ds->invalid_rd_operations = stats->invalid_ops[BLOCK_ACCT_READ];
     ds->invalid_wr_operations = stats->invalid_ops[BLOCK_ACCT_WRITE];
     ds->invalid_flush_operations =
         stats->invalid_ops[BLOCK_ACCT_FLUSH];
+    ds->invalid_unmap_operations = stats->invalid_ops[BLOCK_ACCT_UNMAP];
 
     ds->rd_merged = stats->merged[BLOCK_ACCT_READ];
     ds->wr_merged = stats->merged[BLOCK_ACCT_WRITE];
+    ds->unmap_merged = stats->merged[BLOCK_ACCT_UNMAP];
     ds->flush_operations = stats->nr_ops[BLOCK_ACCT_FLUSH];
     ds->wr_total_time_ns = stats->total_time_ns[BLOCK_ACCT_WRITE];
     ds->rd_total_time_ns = stats->total_time_ns[BLOCK_ACCT_READ];
     ds->flush_total_time_ns = stats->total_time_ns[BLOCK_ACCT_FLUSH];
+    ds->unmap_total_time_ns = stats->total_time_ns[BLOCK_ACCT_UNMAP];
 
     ds->has_idle_time_ns = stats->last_access_time_ns > 0;
     if (ds->has_idle_time_ns) {
@@ -531,6 +549,11 @@ static BlockStats *bdrv_query_bds_stats(BlockDriverState *bs,
     }
 
     s->stats->wr_highest_offset = stat64_get(&bs->wr_highest_offset);
+
+    s->driver_specific = bdrv_get_specific_stats(bs);
+    if (s->driver_specific) {
+        s->has_driver_specific = true;
+    }
 
     if (bs->file) {
         s->has_parent = true;
@@ -641,7 +664,7 @@ void bdrv_snapshot_dump(QEMUSnapshotInfo *sn)
     char *sizing = NULL;
 
     if (!sn) {
-        qemu_printf("%-10s%-20s%7s%20s%15s",
+        qemu_printf("%-10s%-20s%11s%20s%15s",
                     "ID", "TAG", "VM SIZE", "DATE", "VM CLOCK");
     } else {
         ti = sn->date_sec;
@@ -656,7 +679,7 @@ void bdrv_snapshot_dump(QEMUSnapshotInfo *sn)
                  (int)(secs % 60),
                  (int)((sn->vm_clock_nsec / 1000000) % 1000));
         sizing = size_to_str(sn->vm_state_size);
-        qemu_printf("%-10s%-20s%7s%20s%15s",
+        qemu_printf("%-10s%-20s%11s%20s%15s",
                     sn->id_str, sn->name,
                     sizing,
                     date_buf,

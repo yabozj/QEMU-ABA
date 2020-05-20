@@ -18,7 +18,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu.h"
-#ifdef TARGET_GPROF
+#ifdef CONFIG_GPROF
 #include <sys/gmon.h>
 #endif
 
@@ -26,15 +26,14 @@
 extern void __gcov_dump(void);
 #endif
 
-extern long long llsc_single, llsc_multi;
 void preexit_cleanup(CPUArchState *env, int code)
 {
-#ifdef TARGET_GPROF
+#ifdef CONFIG_GPROF
         _mcleanup();
 #endif
 #ifdef CONFIG_GCOV
         __gcov_dump();
 #endif
-		fprintf(stderr, "[x_mon]\tllsc_single=%lld, llsc_multi=%lld\n", llsc_single, llsc_multi);
         gdb_exit(env, code);
+        qemu_plugin_atexit_cb();
 }

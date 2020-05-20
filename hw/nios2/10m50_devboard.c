@@ -27,8 +27,8 @@
 #include "cpu.h"
 
 #include "hw/sysbus.h"
-#include "hw/hw.h"
 #include "hw/char/serial.h"
+#include "hw/qdev-properties.h"
 #include "sysemu/sysemu.h"
 #include "hw/boards.h"
 #include "exec/memory.h"
@@ -120,7 +120,7 @@ static void nios2_10m50_ghrd_machine_init(struct MachineClass *mc)
 {
     mc->desc = "Altera 10M50 GHRD Nios II design";
     mc->init = nios2_10m50_ghrd_init;
-    mc->is_default = 1;
+    mc->is_default = true;
 }
 
 DEFINE_MACHINE("10m50-ghrd", nios2_10m50_ghrd_machine_init);

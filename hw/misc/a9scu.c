@@ -10,6 +10,8 @@
 
 #include "qemu/osdep.h"
 #include "hw/misc/a9scu.h"
+#include "hw/qdev-properties.h"
+#include "migration/vmstate.h"
 #include "qemu/module.h"
 
 static uint64_t a9_scu_read(void *opaque, hwaddr offset,
@@ -133,7 +135,7 @@ static void a9_scu_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 
-    dc->props = a9_scu_properties;
+    device_class_set_props(dc, a9_scu_properties);
     dc->vmsd = &vmstate_a9_scu;
     dc->reset = a9_scu_reset;
 }

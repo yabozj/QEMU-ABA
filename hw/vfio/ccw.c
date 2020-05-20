@@ -25,9 +25,11 @@
 #include "hw/vfio/vfio-common.h"
 #include "hw/s390x/s390-ccw.h"
 #include "hw/s390x/vfio-ccw.h"
+#include "hw/qdev-properties.h"
 #include "hw/s390x/ccw-device.h"
 #include "exec/address-spaces.h"
 #include "qemu/error-report.h"
+#include "qemu/main-loop.h"
 #include "qemu/module.h"
 
 struct VFIOCCWDevice {
@@ -100,7 +102,7 @@ again:
         if (errno == EAGAIN) {
             goto again;
         }
-        error_report("vfio-ccw: wirte I/O region failed with errno=%d", errno);
+        error_report("vfio-ccw: write I/O region failed with errno=%d", errno);
         ret = -errno;
     } else {
         ret = region->ret_code;
@@ -559,7 +561,7 @@ static void vfio_ccw_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     S390CCWDeviceClass *cdc = S390_CCW_DEVICE_CLASS(klass);
 
-    dc->props = vfio_ccw_properties;
+    device_class_set_props(dc, vfio_ccw_properties);
     dc->vmsd = &vfio_ccw_vmstate;
     dc->desc = "VFIO-based subchannel assignment";
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);

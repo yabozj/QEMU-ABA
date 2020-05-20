@@ -10,6 +10,7 @@
 #define QEMU_NET_FILTER_H
 
 #include "qapi/qapi-types-net.h"
+#include "qemu/queue.h"
 #include "qom/object.h"
 #include "net/queue.h"
 
@@ -61,6 +62,8 @@ struct NetFilterState {
     NetClientState *netdev;
     NetFilterDirection direction;
     bool on;
+    char *position;
+    bool insert_before_flag;
     QTAILQ_ENTRY(NetFilterState) next;
 };
 

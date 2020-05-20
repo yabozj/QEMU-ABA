@@ -23,16 +23,14 @@
 #include "qemu/error-report.h"
 #include "qapi/error.h"
 #include "qapi/visitor.h"
-#include "hw/hw.h"
 #include "qemu/log.h"
-#include "sysemu/sysemu.h"
-#include "hw/boards.h"
 #include "hw/loader.h"
 #include "elf.h"
 #include "hw/sysbus.h"
 #include "sysemu/kvm.h"
 #include "sysemu/device_tree.h"
 #include "kvm_ppc.h"
+#include "migration/vmstate.h"
 #include "sysemu/qtest.h"
 
 #include "hw/ppc/spapr.h"
@@ -89,6 +87,7 @@ static int vio_make_devnode(SpaprVioDevice *dev,
     SpaprVioDeviceClass *pc = VIO_SPAPR_DEVICE_GET_CLASS(dev);
     int vdevice_off, node_off, ret;
     char *dt_name;
+    const char *dt_compatible;
 
     vdevice_off = fdt_path_offset(fdt, "/vdevice");
     if (vdevice_off < 0) {
@@ -115,9 +114,15 @@ static int vio_make_devnode(SpaprVioDevice *dev,
         }
     }
 
-    if (pc->dt_compatible) {
+    if (pc->get_dt_compatible) {
+        dt_compatible = pc->get_dt_compatible(dev);
+    } else {
+        dt_compatible = pc->dt_compatible;
+    }
+
+    if (dt_compatible) {
         ret = fdt_setprop_string(fdt, node_off, "compatible",
-                                 pc->dt_compatible);
+                                 dt_compatible);
         if (ret < 0) {
             return ret;
         }
@@ -295,7 +300,7 @@ int spapr_vio_send_crq(SpaprVioDevice *dev, uint8_t *crq)
     dev->crq.qnext = (dev->crq.qnext + 16) % dev->crq.qsize;
 
     if (dev->signal_state & 1) {
-        qemu_irq_pulse(spapr_vio_qirq(dev));
+        spapr_vio_irq_pulse(dev);
     }
 
     return 0;
@@ -306,7 +311,7 @@ int spapr_vio_send_crq(SpaprVioDevice *dev, uint8_t *crq)
 static void spapr_vio_quiesce_one(SpaprVioDevice *dev)
 {
     if (dev->tcet) {
-        device_reset(DEVICE(dev->tcet));
+        device_legacy_reset(DEVICE(dev->tcet));
     }
     free_crq(dev);
 }

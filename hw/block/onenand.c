@@ -23,9 +23,11 @@
 #include "hw/hw.h"
 #include "hw/block/flash.h"
 #include "hw/irq.h"
+#include "hw/qdev-properties.h"
 #include "sysemu/block-backend.h"
 #include "exec/memory.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
 #include "qemu/error-report.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
@@ -820,7 +822,7 @@ static void onenand_realize(DeviceState *dev, Error **errp)
     onenand_mem_setup(s);
     sysbus_init_irq(sbd, &s->intr);
     sysbus_init_mmio(sbd, &s->container);
-    vmstate_register(dev,
+    vmstate_register(VMSTATE_IF(dev),
                      ((s->shift & 0x7f) << 24)
                      | ((s->id.man & 0xff) << 16)
                      | ((s->id.dev & 0xff) << 8)
@@ -843,7 +845,7 @@ static void onenand_class_init(ObjectClass *klass, void *data)
 
     dc->realize = onenand_realize;
     dc->reset = onenand_system_reset;
-    dc->props = onenand_properties;
+    device_class_set_props(dc, onenand_properties);
 }
 
 static const TypeInfo onenand_info = {

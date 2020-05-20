@@ -20,7 +20,7 @@
 #ifndef QEMU_I386_CPU_QOM_H
 #define QEMU_I386_CPU_QOM_H
 
-#include "qom/cpu.h"
+#include "hw/core/cpu.h"
 #include "qemu/notify.h"
 
 #ifdef TARGET_X86_64
@@ -71,7 +71,7 @@ typedef struct X86CPUClass {
 
     DeviceRealize parent_realize;
     DeviceUnrealize parent_unrealize;
-    void (*parent_reset)(CPUState *cpu);
+    DeviceReset parent_reset;
 } X86CPUClass;
 
 typedef struct X86CPU X86CPU;

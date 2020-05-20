@@ -22,8 +22,8 @@
 #include "exec/exec-all.h"
 #include "exec/helper-proto.h"
 #include "exec/cpu_ldst.h"
-#include "sysemu/sysemu.h"
 #include "qemu/timer.h"
+#include "sysemu/runstate.h"
 #include "fpu/softfloat.h"
 #include "trace.h"
 
@@ -137,9 +137,7 @@ static void do_stby_e(CPUHPPAState *env, target_ulong addr, target_ureg val,
     default:
         /* Nothing is stored, but protection is checked and the
            cacheline is marked dirty.  */
-#ifndef CONFIG_USER_ONLY
         probe_write(env, addr, 0, cpu_mmu_index(env, 0), ra);
-#endif
         break;
     }
 }
@@ -153,6 +151,15 @@ void HELPER(stby_e_parallel)(CPUHPPAState *env, target_ulong addr,
                              target_ureg val)
 {
     do_stby_e(env, addr, val, true, GETPC());
+}
+
+void HELPER(ldc_check)(target_ulong addr)
+{
+    if (unlikely(addr & 0xf)) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "Undefined ldc to unaligned address mod 16: "
+                      TARGET_FMT_lx "\n", addr);
+    }
 }
 
 target_ureg HELPER(probe)(CPUHPPAState *env, target_ulong addr,

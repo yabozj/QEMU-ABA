@@ -12,9 +12,10 @@
  *
  */
 
-#include "sysemu.h"
 #include "qapi/qapi-types-misc.h"
+#include "qapi/qapi-types-run-state.h"
 #include "qapi/qapi-types-ui.h"
+#include "block/aio.h"
 
 /* replay clock kinds */
 enum ReplayClockKind {
@@ -75,7 +76,7 @@ void replay_add_blocker(Error *reason);
 /* Processing the instructions */
 
 /*! Returns number of executed instructions. */
-uint64_t replay_get_current_step(void);
+uint64_t replay_get_current_icount(void);
 /*! Returns number of instructions to execute in replay mode. */
 int replay_get_instructions(void);
 /*! Updates instructions counter in replay mode. */
@@ -116,6 +117,13 @@ int64_t replay_read_clock(ReplayClockKind kind);
             ? replay_save_clock((clock), (value), cpu_get_icount_raw_locked()) \
         : (value))
 
+/* Processing data from random generators */
+
+/* Saves the values from the random number generator */
+void replay_save_random(int ret, void *buf, size_t len);
+/* Loads the saved values for the random number generator */
+int replay_read_random(void *buf, size_t len);
+
 /* Events */
 
 /*! Called when qemu shutdown is requested. */
@@ -140,6 +148,9 @@ void replay_enable_events(void);
 bool replay_events_enabled(void);
 /*! Adds bottom half event to the queue */
 void replay_bh_schedule_event(QEMUBH *bh);
+/* Adds oneshot bottom half event to the queue */
+void replay_bh_schedule_oneshot_event(AioContext *ctx,
+    QEMUBHFunc *cb, void *opaque);
 /*! Adds input event to the queue */
 void replay_input_event(QemuConsole *src, InputEvent *evt);
 /*! Adds input sync event to the queue */
@@ -179,9 +190,9 @@ void replay_net_packet_event(ReplayNetState *rns, unsigned flags,
 /* Audio */
 
 /*! Saves/restores number of played samples of audio out operation. */
-void replay_audio_out(int *played);
+void replay_audio_out(size_t *played);
 /*! Saves/restores recorded samples of audio in operation. */
-void replay_audio_in(int *recorded, void *samples, int *wpos, int size);
+void replay_audio_in(size_t *recorded, void *samples, size_t *wpos, size_t size);
 
 /* VM state operations */
 

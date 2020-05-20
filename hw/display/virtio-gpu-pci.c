@@ -15,6 +15,7 @@
 #include "qapi/error.h"
 #include "qemu/module.h"
 #include "hw/pci/pci.h"
+#include "hw/qdev-properties.h"
 #include "hw/virtio/virtio.h"
 #include "hw/virtio/virtio-bus.h"
 #include "hw/virtio/virtio-gpu-pci.h"
@@ -55,7 +56,7 @@ static void virtio_gpu_pci_base_class_init(ObjectClass *klass, void *data)
     PCIDeviceClass *pcidev_k = PCI_DEVICE_CLASS(klass);
 
     set_bit(DEVICE_CATEGORY_DISPLAY, dc->categories);
-    dc->props = virtio_gpu_pci_base_properties;
+    device_class_set_props(dc, virtio_gpu_pci_base_properties);
     dc->hotpluggable = false;
     k->realize = virtio_gpu_pci_base_realize;
     pcidev_k->class_id = PCI_CLASS_DISPLAY_OTHER;

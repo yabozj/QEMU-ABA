@@ -36,9 +36,8 @@
 */
 
 #include "qemu/osdep.h"
-#include "hw/hw.h"
-#include "hw/qdev.h"
 #include "qemu/module.h"
+#include "hw/irq.h"
 #include "hw/isa/isa.h"
 
 #define IOMEM_LEN    0x10000
@@ -126,7 +125,7 @@ static void test_flush_page_write(void *opaque, hwaddr addr, uint64_t data,
                             unsigned len)
 {
     hwaddr page = 4096;
-    void *a = cpu_physical_memory_map(data & ~0xffful, &page, 0);
+    void *a = cpu_physical_memory_map(data & ~0xffful, &page, false);
 
     /* We might not be able to get the full page, only mprotect what we actually
        have mapped */

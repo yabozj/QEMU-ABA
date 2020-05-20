@@ -128,12 +128,12 @@ static ssize_t qcow2_compress(void *dest, size_t dest_size,
  * @src - source buffer, @src_size bytes
  *
  * Returns: 0 on success
- *          -1 on fail
+ *          -EIO on fail
  */
 static ssize_t qcow2_decompress(void *dest, size_t dest_size,
                                 const void *src, size_t src_size)
 {
-    int ret = 0;
+    int ret;
     z_stream strm;
 
     memset(&strm, 0, sizeof(strm));
@@ -144,17 +144,19 @@ static ssize_t qcow2_decompress(void *dest, size_t dest_size,
 
     ret = inflateInit2(&strm, -12);
     if (ret != Z_OK) {
-        return -1;
+        return -EIO;
     }
 
     ret = inflate(&strm, Z_FINISH);
-    if ((ret != Z_STREAM_END && ret != Z_BUF_ERROR) || strm.avail_out != 0) {
+    if ((ret == Z_STREAM_END || ret == Z_BUF_ERROR) && strm.avail_out == 0) {
         /*
          * We approve Z_BUF_ERROR because we need @dest buffer to be filled, but
          * @src buffer may be processed partly (because in qcow2 we know size of
          * compressed data with precision of one sector)
          */
-        ret = -1;
+        ret = 0;
+    } else {
+        ret = -EIO;
     }
 
     inflateEnd(&strm);
@@ -234,35 +236,74 @@ static int qcow2_encdec_pool_func(void *opaque)
 }
 
 static int coroutine_fn
-qcow2_co_encdec(BlockDriverState *bs, uint64_t file_cluster_offset,
-                  uint64_t offset, void *buf, size_t len, Qcow2EncDecFunc func)
+qcow2_co_encdec(BlockDriverState *bs, uint64_t host_offset,
+                uint64_t guest_offset, void *buf, size_t len,
+                Qcow2EncDecFunc func)
 {
     BDRVQcow2State *s = bs->opaque;
     Qcow2EncDecData arg = {
         .block = s->crypto,
-        .offset = s->crypt_physical_offset ?
-                      file_cluster_offset + offset_into_cluster(s, offset) :
-                      offset,
+        .offset = s->crypt_physical_offset ? host_offset : guest_offset,
         .buf = buf,
         .len = len,
         .func = func,
     };
+    uint64_t sector_size;
 
-    return qcow2_co_process(bs, qcow2_encdec_pool_func, &arg);
+    assert(s->crypto);
+
+    sector_size = qcrypto_block_get_sector_size(s->crypto);
+    assert(QEMU_IS_ALIGNED(guest_offset, sector_size));
+    assert(QEMU_IS_ALIGNED(host_offset, sector_size));
+    assert(QEMU_IS_ALIGNED(len, sector_size));
+
+    return len == 0 ? 0 : qcow2_co_process(bs, qcow2_encdec_pool_func, &arg);
 }
 
+/*
+ * qcow2_co_encrypt()
+ *
+ * Encrypts one or more contiguous aligned sectors
+ *
+ * @host_offset - underlying storage offset of the first sector of the
+ * data to be encrypted
+ *
+ * @guest_offset - guest (virtual) offset of the first sector of the
+ * data to be encrypted
+ *
+ * @buf - buffer with the data to encrypt, that after encryption
+ *        will be written to the underlying storage device at
+ *        @host_offset
+ *
+ * @len - length of the buffer (must be a multiple of the encryption
+ *        sector size)
+ *
+ * Depending on the encryption method, @host_offset and/or @guest_offset
+ * may be used for generating the initialization vector for
+ * encryption.
+ *
+ * Note that while the whole range must be aligned on sectors, it
+ * does not have to be aligned on clusters and can also cross cluster
+ * boundaries
+ */
 int coroutine_fn
-qcow2_co_encrypt(BlockDriverState *bs, uint64_t file_cluster_offset,
-                 uint64_t offset, void *buf, size_t len)
+qcow2_co_encrypt(BlockDriverState *bs, uint64_t host_offset,
+                 uint64_t guest_offset, void *buf, size_t len)
 {
-    return qcow2_co_encdec(bs, file_cluster_offset, offset, buf, len,
-                             qcrypto_block_encrypt);
+    return qcow2_co_encdec(bs, host_offset, guest_offset, buf, len,
+                           qcrypto_block_encrypt);
 }
 
+/*
+ * qcow2_co_decrypt()
+ *
+ * Decrypts one or more contiguous aligned sectors
+ * Similar to qcow2_co_encrypt
+ */
 int coroutine_fn
-qcow2_co_decrypt(BlockDriverState *bs, uint64_t file_cluster_offset,
-                 uint64_t offset, void *buf, size_t len)
+qcow2_co_decrypt(BlockDriverState *bs, uint64_t host_offset,
+                 uint64_t guest_offset, void *buf, size_t len)
 {
-    return qcow2_co_encdec(bs, file_cluster_offset, offset, buf, len,
-                             qcrypto_block_decrypt);
+    return qcow2_co_encdec(bs, host_offset, guest_offset, buf, len,
+                           qcrypto_block_decrypt);
 }

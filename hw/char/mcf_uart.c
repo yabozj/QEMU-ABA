@@ -7,10 +7,11 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/hw.h"
+#include "hw/irq.h"
 #include "hw/sysbus.h"
 #include "qemu/module.h"
 #include "hw/m68k/mcf.h"
+#include "hw/qdev-properties.h"
 #include "chardev/char-fe.h"
 
 typedef struct {
@@ -255,7 +256,7 @@ static void mcf_uart_push_byte(mcf_uart_state *s, uint8_t data)
     mcf_uart_update(s);
 }
 
-static void mcf_uart_event(void *opaque, int event)
+static void mcf_uart_event(void *opaque, QEMUChrEvent event)
 {
     mcf_uart_state *s = (mcf_uart_state *)opaque;
 
@@ -319,7 +320,7 @@ static void mcf_uart_class_init(ObjectClass *oc, void *data)
 
     dc->realize = mcf_uart_realize;
     dc->reset = mcf_uart_reset;
-    dc->props = mcf_uart_properties;
+    device_class_set_props(dc, mcf_uart_properties);
     set_bit(DEVICE_CATEGORY_INPUT, dc->categories);
 }
 

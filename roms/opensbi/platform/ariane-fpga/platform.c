@@ -145,7 +145,7 @@ static int ariane_timer_init(bool cold_boot)
 
 	if (cold_boot) {
 		ret = clint_cold_timer_init(ARIANE_CLINT_ADDR,
-							ARIANE_HART_COUNT);
+					    ARIANE_HART_COUNT, TRUE);
 		if (ret)
 			return ret;
 	}
@@ -185,7 +185,6 @@ const struct sbi_platform_operations platform_ops = {
 	.irqchip_init = ariane_irqchip_init,
 	.ipi_init = ariane_ipi_init,
 	.ipi_send = clint_ipi_send,
-	.ipi_sync = clint_ipi_sync,
 	.ipi_clear = clint_ipi_clear,
 	.timer_init = ariane_timer_init,
 	.timer_value = clint_timer_value,

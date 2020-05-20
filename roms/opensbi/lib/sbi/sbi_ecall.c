@@ -7,18 +7,10 @@
  *   Anup Patel <anup.patel@wdc.com>
  */
 
-#include <sbi/sbi_console.h>
 #include <sbi/sbi_ecall.h>
 #include <sbi/sbi_ecall_interface.h>
 #include <sbi/sbi_error.h>
-#include <sbi/sbi_ipi.h>
-#include <sbi/sbi_system.h>
-#include <sbi/sbi_timer.h>
-#include <sbi/sbi_tlb.h>
 #include <sbi/sbi_trap.h>
-
-#define SBI_ECALL_VERSION_MAJOR 0
-#define SBI_ECALL_VERSION_MINOR 1
 
 u16 sbi_ecall_version_major(void)
 {
@@ -30,78 +22,128 @@ u16 sbi_ecall_version_minor(void)
 	return SBI_ECALL_VERSION_MINOR;
 }
 
-int sbi_ecall_handler(u32 hartid, ulong mcause, struct sbi_trap_regs *regs,
-		      struct sbi_scratch *scratch)
+static SBI_LIST_HEAD(ecall_exts_list);
+
+struct sbi_ecall_extension *sbi_ecall_find_extension(unsigned long extid)
 {
-	int ret = SBI_ENOTSUPP;
-	struct unpriv_trap uptrap;
-	struct sbi_tlb_info tlb_info;
+	struct sbi_ecall_extension *t, *ret = NULL;
 
-	switch (regs->a7) {
-	case SBI_ECALL_SET_TIMER:
-#if __riscv_xlen == 32
-		sbi_timer_event_start(scratch,
-				      (((u64)regs->a1 << 32) | (u64)regs->a0));
-#else
-		sbi_timer_event_start(scratch, (u64)regs->a0);
-#endif
-		ret = 0;
-		break;
-	case SBI_ECALL_CONSOLE_PUTCHAR:
-		sbi_putc(regs->a0);
-		ret = 0;
-		break;
-	case SBI_ECALL_CONSOLE_GETCHAR:
-		regs->a0 = sbi_getc();
-		ret	 = 0;
-		break;
-	case SBI_ECALL_CLEAR_IPI:
-		sbi_ipi_clear_smode(scratch);
-		ret = 0;
-		break;
-	case SBI_ECALL_SEND_IPI:
-		ret = sbi_ipi_send_many(scratch, &uptrap, (ulong *)regs->a0,
-					SBI_IPI_EVENT_SOFT, NULL);
-		break;
-	case SBI_ECALL_REMOTE_FENCE_I:
-		ret = sbi_ipi_send_many(scratch, &uptrap, (ulong *)regs->a0,
-					SBI_IPI_EVENT_FENCE_I, NULL);
-		break;
-	case SBI_ECALL_REMOTE_SFENCE_VMA:
-		tlb_info.start = (unsigned long)regs->a1;
-		tlb_info.size  = (unsigned long)regs->a2;
-		tlb_info.type  = SBI_TLB_FLUSH_VMA;
-
-		ret = sbi_ipi_send_many(scratch, &uptrap, (ulong *)regs->a0,
-					SBI_IPI_EVENT_SFENCE_VMA, &tlb_info);
-		break;
-	case SBI_ECALL_REMOTE_SFENCE_VMA_ASID:
-		tlb_info.start = (unsigned long)regs->a1;
-		tlb_info.size  = (unsigned long)regs->a2;
-		tlb_info.asid  = (unsigned long)regs->a3;
-		tlb_info.type  = SBI_TLB_FLUSH_VMA_ASID;
-
-		ret = sbi_ipi_send_many(scratch, &uptrap, (ulong *)regs->a0,
-					SBI_IPI_EVENT_SFENCE_VMA_ASID,
-					&tlb_info);
-		break;
-	case SBI_ECALL_SHUTDOWN:
-		sbi_system_shutdown(scratch, 0);
-		ret = 0;
-		break;
-	default:
-		regs->a0 = SBI_ENOTSUPP;
-		ret	 = 0;
-		break;
-	};
-
-	if (!ret) {
-		regs->mepc += 4;
-	} else if (ret == SBI_ETRAP) {
-		ret = 0;
-		sbi_trap_redirect(regs, scratch, regs->mepc,
-				  uptrap.cause, uptrap.tval);
+	sbi_list_for_each_entry(t, &ecall_exts_list, head) {
+		if (t->extid_start <= extid && extid <= t->extid_end) {
+			ret = t;
+			break;
+		}
 	}
 
 	return ret;
+}
+
+int sbi_ecall_register_extension(struct sbi_ecall_extension *ext)
+{
+	if (!ext || (ext->extid_end < ext->extid_start) || !ext->handle)
+		return SBI_EINVAL;
+	if (sbi_ecall_find_extension(ext->extid_start) ||
+	    sbi_ecall_find_extension(ext->extid_end))
+		return SBI_EINVAL;
+
+	SBI_INIT_LIST_HEAD(&ext->head);
+	sbi_list_add_tail(&ext->head, &ecall_exts_list);
+
+	return 0;
+}
+
+void sbi_ecall_unregister_extension(struct sbi_ecall_extension *ext)
+{
+	bool found = FALSE;
+	struct sbi_ecall_extension *t;
+
+	if (!ext)
+		return;
+
+	sbi_list_for_each_entry(t, &ecall_exts_list, head) {
+		if (t == ext) {
+			found = TRUE;
+			break;
+		}
+	}
+
+	if (found)
+		sbi_list_del_init(&ext->head);
+}
+
+int sbi_ecall_handler(u32 hartid, ulong mcause, struct sbi_trap_regs *regs,
+		      struct sbi_scratch *scratch)
+{
+	int ret = 0;
+	struct sbi_ecall_extension *ext;
+	unsigned long extension_id = regs->a7;
+	unsigned long func_id = regs->a6;
+	struct sbi_trap_info trap = {0};
+	unsigned long out_val = 0;
+	bool is_0_1_spec = 0;
+	unsigned long args[6];
+
+	args[0] = regs->a0;
+	args[1] = regs->a1;
+	args[2] = regs->a2;
+	args[3] = regs->a3;
+	args[4] = regs->a4;
+	args[5] = regs->a5;
+
+	ext = sbi_ecall_find_extension(extension_id);
+	if (ext && ext->handle) {
+		ret = ext->handle(scratch, extension_id, func_id,
+				  args, &out_val, &trap);
+		if (extension_id >= SBI_EXT_0_1_SET_TIMER &&
+		    extension_id <= SBI_EXT_0_1_SHUTDOWN)
+			is_0_1_spec = 1;
+	} else {
+		ret = SBI_ENOTSUPP;
+	}
+
+	if (ret == SBI_ETRAP) {
+		trap.epc = regs->mepc;
+		sbi_trap_redirect(regs, &trap, scratch);
+	} else {
+		/* This function should return non-zero value only in case of
+		 * fatal error. However, there is no good way to distinguish
+		 * between a fatal and non-fatal errors yet. That's why we treat
+		 * every return value except ETRAP as non-fatal and just return
+		 * accordingly for now. Once fatal errors are defined, that
+		 * case should be handled differently.
+		 */
+		regs->mepc += 4;
+		regs->a0 = ret;
+		if (!is_0_1_spec)
+			regs->a1 = out_val;
+	}
+
+	return 0;
+}
+
+int sbi_ecall_init(void)
+{
+	int ret;
+
+	/* The order of below registrations is performance optimized */
+	ret = sbi_ecall_register_extension(&ecall_time);
+	if (ret)
+		return ret;
+	ret = sbi_ecall_register_extension(&ecall_rfence);
+	if (ret)
+		return ret;
+	ret = sbi_ecall_register_extension(&ecall_ipi);
+	if (ret)
+		return ret;
+	ret = sbi_ecall_register_extension(&ecall_base);
+	if (ret)
+		return ret;
+	ret = sbi_ecall_register_extension(&ecall_legacy);
+	if (ret)
+		return ret;
+	ret = sbi_ecall_register_extension(&ecall_vendor);
+	if (ret)
+		return ret;
+
+	return 0;
 }

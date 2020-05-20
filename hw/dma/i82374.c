@@ -26,6 +26,8 @@
 #include "qapi/error.h"
 #include "qemu/module.h"
 #include "hw/isa/isa.h"
+#include "hw/qdev-properties.h"
+#include "migration/vmstate.h"
 #include "hw/dma/i8257.h"
 
 #define TYPE_I82374 "i82374"
@@ -147,7 +149,7 @@ static void i82374_class_init(ObjectClass *klass, void *data)
     
     dc->realize = i82374_realize;
     dc->vmsd = &vmstate_i82374;
-    dc->props = i82374_properties;
+    device_class_set_props(dc, i82374_properties);
 }
 
 static const TypeInfo i82374_info = {

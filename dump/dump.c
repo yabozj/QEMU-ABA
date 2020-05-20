@@ -20,14 +20,15 @@
 #include "monitor/monitor.h"
 #include "sysemu/kvm.h"
 #include "sysemu/dump.h"
-#include "sysemu/sysemu.h"
 #include "sysemu/memory_mapping.h"
+#include "sysemu/runstate.h"
 #include "sysemu/cpus.h"
 #include "qapi/error.h"
 #include "qapi/qapi-commands-dump.h"
 #include "qapi/qapi-events-dump.h"
 #include "qapi/qmp/qerror.h"
 #include "qemu/error-report.h"
+#include "qemu/main-loop.h"
 #include "hw/misc/vmcoreinfo.h"
 
 #ifdef TARGET_X86_64
@@ -363,7 +364,7 @@ static void write_elf_section(DumpState *s, int type, Error **errp)
         shdr = &shdr64;
     }
 
-    ret = fd_write_vmcore(&shdr, shdr_size, s);
+    ret = fd_write_vmcore(shdr, shdr_size, s);
     if (ret < 0) {
         error_setg_errno(errp, -ret,
                          "dump: failed to write section header table");

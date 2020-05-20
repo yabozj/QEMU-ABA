@@ -20,12 +20,13 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/hw.h"
 #include "qemu/timer.h"
 #include "qemu/module.h"
 #include "qemu/queue.h"
 #include "hw/usb.h"
+#include "migration/vmstate.h"
 #include "hw/pci/pci.h"
+#include "hw/qdev-properties.h"
 #include "hw/pci/msi.h"
 #include "hw/pci/msix.h"
 #include "trace.h"
@@ -1860,6 +1861,13 @@ static void xhci_kick_ep(XHCIState *xhci, unsigned int slotid,
     xhci_kick_epctx(epctx, streamid);
 }
 
+static bool xhci_slot_ok(XHCIState *xhci, int slotid)
+{
+    return (xhci->slots[slotid - 1].uport &&
+            xhci->slots[slotid - 1].uport->dev &&
+            xhci->slots[slotid - 1].uport->dev->attached);
+}
+
 static void xhci_kick_epctx(XHCIEPContext *epctx, unsigned int streamid)
 {
     XHCIState *xhci = epctx->xhci;
@@ -1877,9 +1885,7 @@ static void xhci_kick_epctx(XHCIEPContext *epctx, unsigned int streamid)
 
     /* If the device has been detached, but the guest has not noticed this
        yet the 2 above checks will succeed, but we must NOT continue */
-    if (!xhci->slots[epctx->slotid - 1].uport ||
-        !xhci->slots[epctx->slotid - 1].uport->dev ||
-        !xhci->slots[epctx->slotid - 1].uport->dev->attached) {
+    if (!xhci_slot_ok(xhci, epctx->slotid)) {
         return;
     }
 
@@ -1913,6 +1919,7 @@ static void xhci_kick_epctx(XHCIEPContext *epctx, unsigned int streamid)
             }
             usb_handle_packet(xfer->packet.ep->dev, &xfer->packet);
             if (xfer->packet.status == USB_RET_NAK) {
+                xhci_xfer_unmap(xfer);
                 return;
             }
             xhci_try_complete_packet(xfer);
@@ -1985,6 +1992,10 @@ static void xhci_kick_epctx(XHCIEPContext *epctx, unsigned int streamid)
         } else {
             xhci_fire_transfer(xhci, xfer, epctx);
         }
+        if (!xhci_slot_ok(xhci, epctx->slotid)) {
+            /* surprise removal -> stop processing */
+            break;
+        }
         if (xfer->complete) {
             /* update ring dequeue ptr */
             xhci_set_ep_state(xhci, epctx, stctx, epctx->state);
@@ -1998,6 +2009,7 @@ static void xhci_kick_epctx(XHCIEPContext *epctx, unsigned int streamid)
         if (xfer != NULL && xfer->running_retry) {
             DPRINTF("xhci: xfer nacked, stopping schedule\n");
             epctx->retry = xfer;
+            xhci_xfer_unmap(xfer);
             break;
         }
         if (count++ > TRANSFER_LIMIT) {
@@ -2160,6 +2172,7 @@ static TRBCCode xhci_address_slot(XHCIState *xhci, unsigned int slotid,
                                   DeviceOutRequest | USB_REQ_SET_ADDRESS,
                                   slotid, 0, 0, NULL);
         assert(p.status != USB_RET_ASYNC);
+        usb_packet_cleanup(&p);
     }
 
     res = xhci_enable_ep(xhci, slotid, 1, octx+32, ep0_ctx);
@@ -2541,6 +2554,9 @@ static void xhci_process_commands(XHCIState *xhci)
             break;
         case CR_GET_PORT_BANDWIDTH:
             event.ccode = xhci_get_port_bandwidth(xhci, trb.parameter);
+            break;
+        case CR_NOOP:
+            event.ccode = CC_SUCCESS;
             break;
         case CR_VENDOR_NEC_FIRMWARE_REVISION:
             if (xhci->nec_quirks) {
@@ -3691,7 +3707,7 @@ static void xhci_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->vmsd    = &vmstate_xhci;
-    dc->props   = xhci_properties;
+    device_class_set_props(dc, xhci_properties);
     dc->reset   = xhci_reset;
     set_bit(DEVICE_CATEGORY_USB, dc->categories);
     k->realize      = usb_xhci_realize;

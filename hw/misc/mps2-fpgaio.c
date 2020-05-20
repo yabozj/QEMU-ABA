@@ -21,8 +21,10 @@
 #include "qapi/error.h"
 #include "trace.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
 #include "hw/registerfields.h"
 #include "hw/misc/mps2-fpgaio.h"
+#include "hw/qdev-properties.h"
 #include "qemu/timer.h"
 
 REG32(LED0, 0)
@@ -298,7 +300,7 @@ static void mps2_fpgaio_class_init(ObjectClass *klass, void *data)
 
     dc->vmsd = &mps2_fpgaio_vmstate;
     dc->reset = mps2_fpgaio_reset;
-    dc->props = mps2_fpgaio_properties;
+    device_class_set_props(dc, mps2_fpgaio_properties);
 }
 
 static const TypeInfo mps2_fpgaio_info = {

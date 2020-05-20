@@ -18,7 +18,7 @@
 #ifndef QEMU_TRICORE_CPU_QOM_H
 #define QEMU_TRICORE_CPU_QOM_H
 
-#include "qom/cpu.h"
+#include "hw/core/cpu.h"
 
 
 #define TYPE_TRICORE_CPU "tricore-cpu"
@@ -36,7 +36,7 @@ typedef struct TriCoreCPUClass {
     /*< public >*/
 
     DeviceRealize parent_realize;
-    void (*parent_reset)(CPUState *cpu);
+    DeviceReset parent_reset;
 } TriCoreCPUClass;
 
 typedef struct TriCoreCPU TriCoreCPU;

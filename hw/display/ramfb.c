@@ -10,13 +10,14 @@
  * This work is licensed under the terms of the GNU GPL, version 2 or later.
  * See the COPYING file in the top-level directory.
  */
+
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/option.h"
 #include "hw/loader.h"
 #include "hw/display/ramfb.h"
 #include "ui/console.h"
-#include "sysemu/sysemu.h"
+#include "sysemu/reset.h"
 
 struct QEMU_PACKED RAMFBCfg {
     uint64_t addr;
@@ -56,7 +57,7 @@ static DisplaySurface *ramfb_create_display_surface(int width, int height,
     }
 
     size = (hwaddr)linesize * height;
-    data = cpu_physical_memory_map(addr, &size, 0);
+    data = cpu_physical_memory_map(addr, &size, false);
     if (size != (hwaddr)linesize * height) {
         cpu_physical_memory_unmap(data, size, 0, 0);
         return NULL;

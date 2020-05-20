@@ -7,9 +7,9 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/config-file.h"
+#include "qemu/main-loop.h"
 #include "qemu/module.h"
 #include "qemu/sockets.h"
-#include "sysemu/sysemu.h"
 #include "ui/input.h"
 #include "qom/object_interfaces.h"
 #include "sysemu/iothread.h"
@@ -112,6 +112,10 @@ static bool input_linux_check_toggle(InputLinux *il)
     case GRAB_TOGGLE_KEYS_ALT_ALT:
         return il->keydown[KEY_LEFTALT] &&
             il->keydown[KEY_RIGHTALT];
+
+    case GRAB_TOGGLE_KEYS_SHIFT_SHIFT:
+        return il->keydown[KEY_LEFTSHIFT] &&
+            il->keydown[KEY_RIGHTSHIFT];
 
     case GRAB_TOGGLE_KEYS_META_META:
         return il->keydown[KEY_LEFTMETA] &&
@@ -330,13 +334,15 @@ static void input_linux_complete(UserCreatable *uc, Error **errp)
 
     rc = ioctl(il->fd, EVIOCGBIT(0, sizeof(evtmap)), &evtmap);
     if (rc < 0) {
-        error_setg(errp, "%s: failed to read event bits", il->evdev);
-        goto err_close;
+        goto err_read_event_bits;
     }
 
     if (evtmap & (1 << EV_REL)) {
         relmap = 0;
         rc = ioctl(il->fd, EVIOCGBIT(EV_REL, sizeof(relmap)), &relmap);
+        if (rc < 0) {
+            goto err_read_event_bits;
+        }
         if (relmap & (1 << REL_X)) {
             il->has_rel_x = true;
         }
@@ -345,12 +351,25 @@ static void input_linux_complete(UserCreatable *uc, Error **errp)
     if (evtmap & (1 << EV_ABS)) {
         absmap = 0;
         rc = ioctl(il->fd, EVIOCGBIT(EV_ABS, sizeof(absmap)), &absmap);
+        if (rc < 0) {
+            goto err_read_event_bits;
+        }
         if (absmap & (1 << ABS_X)) {
             il->has_abs_x = true;
             rc = ioctl(il->fd, EVIOCGABS(ABS_X), &absinfo);
+            if (rc < 0) {
+                error_setg(errp, "%s: failed to get get absolute X value",
+                           il->evdev);
+                goto err_close;
+            }
             il->abs_x_min = absinfo.minimum;
             il->abs_x_max = absinfo.maximum;
             rc = ioctl(il->fd, EVIOCGABS(ABS_Y), &absinfo);
+            if (rc < 0) {
+                error_setg(errp, "%s: failed to get get absolute Y value",
+                           il->evdev);
+                goto err_close;
+            }
             il->abs_y_min = absinfo.minimum;
             il->abs_y_max = absinfo.maximum;
         }
@@ -359,7 +378,14 @@ static void input_linux_complete(UserCreatable *uc, Error **errp)
     if (evtmap & (1 << EV_KEY)) {
         memset(keymap, 0, sizeof(keymap));
         rc = ioctl(il->fd, EVIOCGBIT(EV_KEY, sizeof(keymap)), keymap);
+        if (rc < 0) {
+            goto err_read_event_bits;
+        }
         rc = ioctl(il->fd, EVIOCGKEY(sizeof(keystate)), keystate);
+        if (rc < 0) {
+            error_setg(errp, "%s: failed to get global key state", il->evdev);
+            goto err_close;
+        }
         for (i = 0; i < KEY_CNT; i++) {
             if (keymap[i / 8] & (1 << (i % 8))) {
                 if (linux_is_button(i)) {
@@ -385,6 +411,9 @@ static void input_linux_complete(UserCreatable *uc, Error **errp)
     QTAILQ_INSERT_TAIL(&inputs, il, next);
     il->initialized = true;
     return;
+
+err_read_event_bits:
+    error_setg(errp, "%s: failed to read event bits", il->evdev);
 
 err_close:
     close(il->fd);

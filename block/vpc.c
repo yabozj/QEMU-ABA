@@ -737,7 +737,7 @@ static int coroutine_fn vpc_co_block_status(BlockDriverState *bs,
         *pnum = bytes;
         *map = offset;
         *file = bs->file->bs;
-        return BDRV_BLOCK_RAW | BDRV_BLOCK_OFFSET_VALID;
+        return BDRV_BLOCK_DATA | BDRV_BLOCK_OFFSET_VALID | BDRV_BLOCK_RECURSE;
     }
 
     qemu_co_mutex_lock(&s->lock);
@@ -835,7 +835,7 @@ static int create_dynamic_disk(BlockBackend *blk, uint8_t *buf,
 
     /* Write the footer (twice: at the beginning and at the end) */
     block_size = 0x200000;
-    num_bat_entries = (total_sectors + block_size / 512) / (block_size / 512);
+    num_bat_entries = DIV_ROUND_UP(total_sectors, block_size / 512);
 
     ret = blk_pwrite(blk, offset, buf, HEADER_SIZE, 0);
     if (ret < 0) {
@@ -885,6 +885,7 @@ static int create_dynamic_disk(BlockBackend *blk, uint8_t *buf,
         goto fail;
     }
 
+    ret = 0;
  fail:
     return ret;
 }
@@ -897,7 +898,7 @@ static int create_fixed_disk(BlockBackend *blk, uint8_t *buf,
     /* Add footer to total size */
     total_size += HEADER_SIZE;
 
-    ret = blk_truncate(blk, total_size, PREALLOC_MODE_OFF, errp);
+    ret = blk_truncate(blk, total_size, false, PREALLOC_MODE_OFF, errp);
     if (ret < 0) {
         return ret;
     }
@@ -908,7 +909,7 @@ static int create_fixed_disk(BlockBackend *blk, uint8_t *buf,
         return ret;
     }
 
-    return ret;
+    return 0;
 }
 
 static int calculate_rounded_image_size(BlockdevCreateOptionsVpc *vpc_opts,
@@ -1088,8 +1089,10 @@ out:
     return ret;
 }
 
-static int coroutine_fn vpc_co_create_opts(const char *filename,
-                                           QemuOpts *opts, Error **errp)
+static int coroutine_fn vpc_co_create_opts(BlockDriver *drv,
+                                           const char *filename,
+                                           QemuOpts *opts,
+                                           Error **errp)
 {
     BlockdevCreateOptions *create_options = NULL;
     QDict *qdict;

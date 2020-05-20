@@ -20,8 +20,8 @@
 
 #include "qemu/osdep.h"
 #include "qemu-common.h"
-#include "hw/hw.h"
 #include "hw/pci/pci.h"
+#include "hw/qdev-properties.h"
 #include "sysemu/dma.h"
 #include "sysemu/block-backend.h"
 #include "hw/pci/msi.h"
@@ -33,6 +33,7 @@
 #include "trace.h"
 #include "qapi/error.h"
 #include "mfi.h"
+#include "migration/vmstate.h"
 
 #define MEGASAS_VERSION_GEN1 "1.70"
 #define MEGASAS_VERSION_GEN2 "1.80"
@@ -2510,7 +2511,7 @@ static void megasas_class_init(ObjectClass *oc, void *data)
     e->osts = info->osts;
     e->product_name = info->product_name;
     e->product_version = info->product_version;
-    dc->props = info->props;
+    device_class_set_props(dc, info->props);
     dc->reset = megasas_scsi_reset;
     dc->vmsd = info->vmsd;
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);

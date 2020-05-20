@@ -24,6 +24,7 @@
 #include "qemu/module.h"
 #include "hw/sysbus.h"
 #include "target/riscv/cpu.h"
+#include "hw/qdev-properties.h"
 #include "hw/riscv/sifive_clint.h"
 #include "qemu/timer.h"
 
@@ -204,7 +205,7 @@ static void sifive_clint_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = sifive_clint_realize;
-    dc->props = sifive_clint_properties;
+    device_class_set_props(dc, sifive_clint_properties);
 }
 
 static const TypeInfo sifive_clint_info = {
@@ -226,7 +227,8 @@ type_init(sifive_clint_register_types)
  * Create CLINT device.
  */
 DeviceState *sifive_clint_create(hwaddr addr, hwaddr size, uint32_t num_harts,
-    uint32_t sip_base, uint32_t timecmp_base, uint32_t time_base)
+    uint32_t sip_base, uint32_t timecmp_base, uint32_t time_base,
+    bool provide_rdtime)
 {
     int i;
     for (i = 0; i < num_harts; i++) {
@@ -234,6 +236,9 @@ DeviceState *sifive_clint_create(hwaddr addr, hwaddr size, uint32_t num_harts,
         CPURISCVState *env = cpu ? cpu->env_ptr : NULL;
         if (!env) {
             continue;
+        }
+        if (provide_rdtime) {
+            riscv_cpu_set_rdtime_fn(env, cpu_riscv_read_rtc);
         }
         env->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                   &sifive_clint_timer_cb, cpu);

@@ -7,6 +7,7 @@
 
 #include "qemu/osdep.h"
 #include "qemu/cutils.h"
+#include "qemu/main-loop.h"
 #include "qemu/module.h"
 #include "qemu/option.h"
 #include "qapi/error.h"
@@ -17,9 +18,10 @@
 #include "qapi/visitor.h"
 #include "qapi/qmp/qdict.h"
 #include "qapi/qmp/qstring.h"
-#include "hw/hw.h"
+#include "qom/object_interfaces.h"
 #include "hw/xen/xen_common.h"
 #include "hw/block/xen_blkif.h"
+#include "hw/qdev-properties.h"
 #include "hw/xen/xen-block.h"
 #include "hw/xen/xen-backend.h"
 #include "sysemu/blockdev.h"
@@ -312,6 +314,7 @@ static void xen_block_frontend_changed(XenDevice *xendev,
         break;
 
     case XenbusStateClosed:
+    case XenbusStateUnknown:
         xen_block_disconnect(xendev, &local_err);
         if (local_err) {
             error_propagate(errp, local_err);
@@ -552,7 +555,7 @@ static void xen_block_class_init(ObjectClass *class, void *data)
     xendev_class->frontend_changed = xen_block_frontend_changed;
     xendev_class->unrealize = xen_block_unrealize;
 
-    dev_class->props = xen_block_props;
+    device_class_set_props(dev_class, xen_block_props);
 }
 
 static const TypeInfo xen_block_type_info = {
@@ -856,10 +859,18 @@ static XenBlockIOThread *xen_block_iothread_create(const char *id,
 {
     XenBlockIOThread *iothread = g_new(XenBlockIOThread, 1);
     Error *local_err = NULL;
+    QDict *opts;
+    QObject *ret_data = NULL;
 
     iothread->id = g_strdup(id);
 
-    qmp_object_add(TYPE_IOTHREAD, id, false, NULL, &local_err);
+    opts = qdict_new();
+    qdict_put_str(opts, "qom-type", TYPE_IOTHREAD);
+    qdict_put_str(opts, "id", id);
+    qmp_object_add(opts, &ret_data, &local_err);
+    qobject_unref(opts);
+    qobject_unref(ret_data);
+
     if (local_err) {
         error_propagate(errp, local_err);
 
@@ -987,29 +998,27 @@ static void xen_block_device_destroy(XenBackendInstance *backend,
     XenBlockVdev *vdev = &blockdev->props.vdev;
     XenBlockDrive *drive = blockdev->drive;
     XenBlockIOThread *iothread = blockdev->iothread;
+    Error *local_err = NULL;
 
     trace_xen_block_device_destroy(vdev->number);
 
     object_unparent(OBJECT(xendev));
 
     if (iothread) {
-        Error *local_err = NULL;
-
         xen_block_iothread_destroy(iothread, &local_err);
         if (local_err) {
             error_propagate_prepend(errp, local_err,
-                                "failed to destroy iothread: ");
+                                    "failed to destroy iothread: ");
             return;
         }
     }
 
     if (drive) {
-        Error *local_err = NULL;
-
         xen_block_drive_destroy(drive, &local_err);
         if (local_err) {
             error_propagate_prepend(errp, local_err,
-                                "failed to destroy drive: ");
+                                    "failed to destroy drive: ");
+            return;
         }
     }
 }

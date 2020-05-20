@@ -5,6 +5,8 @@ run_poll_handlers_begin(void *ctx, int64_t max_ns, int64_t timeout) "ctx %p max_
 run_poll_handlers_end(void *ctx, bool progress, int64_t timeout) "ctx %p progress %d new timeout %"PRId64
 poll_shrink(void *ctx, int64_t old, int64_t new) "ctx %p old %"PRId64" new %"PRId64
 poll_grow(void *ctx, int64_t old, int64_t new) "ctx %p old %"PRId64" new %"PRId64
+poll_add(void *ctx, void *node, int fd, unsigned revents) "ctx %p node %p fd %d revents 0x%x"
+poll_remove(void *ctx, void *node, int fd) "ctx %p node %p fd %d"
 
 # async.c
 aio_co_schedule(void *ctx, void *co) "ctx %p co %p"
@@ -63,6 +65,9 @@ lockcnt_futex_wait_prepare(const void *lockcnt, int expected, int new) "lockcnt 
 lockcnt_futex_wait(const void *lockcnt, int val) "lockcnt %p waiting on %d"
 lockcnt_futex_wait_resume(const void *lockcnt, int new) "lockcnt %p after wait: %d"
 lockcnt_futex_wake(const void *lockcnt) "lockcnt %p waking up one waiter"
+
+# qemu-sockets.c
+socket_listen(int num) "backlog: %d"
 
 # qemu-thread-common.h
 qemu_mutex_lock(void *mutex, const char *file, const int line) "waiting on mutex %p (%s:%d)"

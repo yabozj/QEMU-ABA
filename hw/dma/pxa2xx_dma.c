@@ -10,8 +10,11 @@
 
 #include "qemu/osdep.h"
 #include "hw/hw.h"
+#include "hw/irq.h"
+#include "hw/qdev-properties.h"
 #include "hw/arm/pxa.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
 #include "qapi/error.h"
 #include "qemu/module.h"
 
@@ -563,7 +566,7 @@ static void pxa2xx_dma_class_init(ObjectClass *klass, void *data)
 
     dc->desc = "PXA2xx DMA controller";
     dc->vmsd = &vmstate_pxa2xx_dma;
-    dc->props = pxa2xx_dma_properties;
+    device_class_set_props(dc, pxa2xx_dma_properties);
     dc->realize = pxa2xx_dma_realize;
 }
 

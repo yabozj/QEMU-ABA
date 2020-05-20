@@ -24,11 +24,9 @@
 #include "qemu/option.h"
 #include "sysemu/sysemu.h"
 #include "qemu/uuid.h"
-#include "sysemu/cpus.h"
 #include "hw/firmware/smbios.h"
 #include "hw/loader.h"
 #include "hw/boards.h"
-#include "exec/cpu-common.h"
 #include "smbios_build.h"
 
 /* legacy structures and constants for <= 2.0 machines */

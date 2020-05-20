@@ -24,6 +24,7 @@
 
 #include "qemu/osdep.h"
 #include "hw/hw.h"
+#include "hw/qdev-properties.h"
 #include "hw/sysbus.h"
 #include "trace.h"
 #include "ui/console.h"
@@ -33,6 +34,7 @@
 #include "qemu/module.h"
 
 #define BITS 8
+#include "migration/vmstate.h"
 #include "milkymist-vgafb_template.h"
 #define BITS 15
 #include "milkymist-vgafb_template.h"
@@ -339,7 +341,7 @@ static void milkymist_vgafb_class_init(ObjectClass *klass, void *data)
 
     dc->reset = milkymist_vgafb_reset;
     dc->vmsd = &vmstate_milkymist_vgafb;
-    dc->props = milkymist_vgafb_properties;
+    device_class_set_props(dc, milkymist_vgafb_properties);
     dc->realize = milkymist_vgafb_realize;
 }
 

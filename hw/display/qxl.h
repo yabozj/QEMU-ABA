@@ -2,7 +2,6 @@
 #define HW_QXL_H
 
 
-#include "hw/hw.h"
 #include "hw/pci/pci.h"
 #include "vga_int.h"
 #include "qemu/thread.h"
@@ -145,7 +144,7 @@ typedef struct PCIQXLDevice {
         }                                                               \
     } while (0)
 
-#define QXL_DEFAULT_REVISION QXL_REVISION_STABLE_V12
+#define QXL_DEFAULT_REVISION (QXL_REVISION_STABLE_V12 + 1)
 
 /* qxl.c */
 void *qxl_phys2virt(PCIQXLDevice *qxl, QXLPHYSICAL phys, int group_id);

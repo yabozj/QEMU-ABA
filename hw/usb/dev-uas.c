@@ -14,10 +14,13 @@
 #include "qemu/config-file.h"
 #include "trace.h"
 #include "qemu/error-report.h"
+#include "qemu/main-loop.h"
 #include "qemu/module.h"
 
 #include "hw/usb.h"
+#include "migration/vmstate.h"
 #include "desc.h"
+#include "hw/qdev-properties.h"
 #include "hw/scsi/scsi.h"
 #include "scsi/constants.h"
 
@@ -300,7 +303,7 @@ static const USBDescDevice desc_device_high = {
 
 static const USBDescDevice desc_device_super = {
     .bcdUSB                        = 0x0300,
-    .bMaxPacketSize0               = 64,
+    .bMaxPacketSize0               = 9,
     .bNumConfigurations            = 1,
     .confs = (USBDescConfig[]) {
         {
@@ -949,7 +952,7 @@ static void usb_uas_class_initfn(ObjectClass *klass, void *data)
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     dc->fw_name = "storage";
     dc->vmsd = &vmstate_usb_uas;
-    dc->props = uas_properties;
+    device_class_set_props(dc, uas_properties);
 }
 
 static const TypeInfo uas_info = {
