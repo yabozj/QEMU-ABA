@@ -7489,28 +7489,8 @@ static void gen_load_exclusive(DisasContext *s, int rt, int rt2,
 {
     TCGv_i32 tmp = tcg_temp_new_i32();
     TCGMemOp opc = size | MO_ALIGN | s->be_data;
-	//tcg_gen_stex_count(addr);
 	tcg_gen_ldex_count(addr);
-#ifdef HASH_LLSC
-    TCGv_i32 mask1 = tcg_const_i32(0x0fffffff);
-    TCGv_i32 mask2 = tcg_const_i32(0xa0000000);
-    TCGv_i32 hash_addr = tcg_temp_new_i32();
-#endif
-
-    s->is_ldex = true;
-#ifdef HASH_LLSC
-    //tcg_gen_ldex_count(addr);
-    //hash method
-    tcg_gen_and_i32(hash_addr, addr, mask1);
-    tcg_gen_or_i32(hash_addr, hash_addr, mask2);
-    gen_aa32_st32(s, cpu_exclusive_tid, hash_addr, get_mem_index(s));
-    tcg_temp_free(mask1);
-    tcg_temp_free(mask2);
-    tcg_temp_free(hash_addr);
-#endif
-#ifdef PF_LLSC
-	tcg_gen_pf_llsc_add(addr, cpu_exclusive_node);
-#endif
+	tcg_gen_mpk_llsc_add(addr, cpu_exclusive_tid);
 
     if (size == 3) {
 		fprintf(stderr, "! I don't wanna deal with this situation!\n");
@@ -7557,16 +7537,17 @@ static void gen_clrex(DisasContext *s)
     tcg_gen_movi_i64(cpu_exclusive_addr, -1);
 }
 
-#ifdef QEMU_LLSC
-static void gen_store_exclusive(DisasContext *s, int rd, int rt, int rt2,
-                                TCGv_i32 addr, int size)
-{
-    tcg_gen_extu_i32_i64(cpu_exclusive_test, addr);
-    tcg_gen_movi_i32(cpu_exclusive_info,
-                     size | (rd << 4) | (rt << 8) | (rt2 << 12));
-    gen_exception_internal_insn(s, 4, EXCP_STREX);
-}
-#else
+// #ifdef QEMU_LLSC
+// static void gen_store_exclusive(DisasContext *s, int rd, int rt, int rt2,
+//                                 TCGv_i32 addr, int size)
+// {
+//     tcg_gen_extu_i32_i64(cpu_exclusive_test, addr);
+//     tcg_gen_movi_i32(cpu_exclusive_info,
+//                      size | (rd << 4) | (rt << 8) | (rt2 << 12));
+//     gen_exception_internal_insn(s, 4, EXCP_STREX);
+// }
+// #else
+
 static void gen_store_exclusive(DisasContext *s, int rd, int rt, int rt2,
                                 TCGv_i32 addr, int size)
 {
@@ -7576,9 +7557,7 @@ static void gen_store_exclusive(DisasContext *s, int rd, int rt, int rt2,
     TCGLabel *done_label;
     TCGLabel *fail_label;
     TCGMemOp opc = size | MO_ALIGN | s->be_data;
-
-
-
+    tcg_gen_mpk_checkflag(addr, cpu_exclusive_tid);
     /* if (env->exclusive_addr == addr && env->exclusive_val == [addr]) {
          [addr] = {Rt};
          {Rd} = 0;
@@ -7641,8 +7620,9 @@ static void gen_store_exclusive(DisasContext *s, int rd, int rt, int rt2,
     tcg_gen_movi_i32(cpu_R[rd], 1);
     gen_set_label(done_label);
     tcg_gen_movi_i64(cpu_exclusive_addr, -1);
+    tcg_gen_mpk_llsc_remove(addr, cpu_exclusive_tid);
 }
-#endif
+// #endif
 
 /* gen_srs:
  * @env: CPUARMState

@@ -56,6 +56,7 @@
 #include <linux/icmpv6.h>
 #include <linux/errqueue.h>
 #include <linux/random.h>
+#include "pku.h"
 #ifdef CONFIG_TIMERFD
 #include <sys/timerfd.h>
 #endif
@@ -5663,6 +5664,8 @@ static void *clone_func(void *arg)
         put_user_u32(info->tid, info->parent_tidptr);
 	env->exclusive_tid = info->tid;
 	env->exclusive_node = (uint64_t)x_monitor_register_thread(info->tid);
+    env->pkey = 0;
+    // env->pkey = pkey_alloc();
     qemu_guest_random_seed_thread_part2(cpu->random_seed);
     /* Enable signals.  */
     sigprocmask(SIG_SETMASK, &info->sigmask, NULL);
@@ -7275,7 +7278,7 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
             g_free(ts);
             rcu_unregister_thread();
 			x_monitor_unregister_thread(((CPUARMState*)cpu)->exclusive_tid);
-
+            clean_all_pkeys(((CPUARMState*)cpu)->exclusive_tid);
             pthread_exit(NULL);
         }
 

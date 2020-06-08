@@ -24,6 +24,7 @@
 #include "hw/registerfields.h"
 #include "cpu-qom.h"
 #include "exec/cpu-defs.h"
+#include "include/pku.h"
 
 /* ARM processors have a weak memory model */
 #define TCG_GUEST_DEFAULT_MO      (0)
@@ -621,7 +622,6 @@ typedef struct CPUARMState {
     uint32_t exclusive_info;
 	uint64_t exclusive_node;
 	int exclusive_tid;
-
     /* iwMMXt coprocessor state.  */
     struct {
         uint64_t regs[16];

@@ -25,6 +25,7 @@
 #include "internals.h"
 #include "exec/exec-all.h"
 #include "exec/cpu_ldst.h"
+#include "include/pku.h"
 
 #define SIGNBIT (uint32_t)0x80000000
 #define SIGNBIT64 ((uint64_t)1 << 63)
@@ -1030,10 +1031,38 @@ void HELPER(print_aa32_addr)(uint32_t addr)
 
 extern int x_monitor_set_exclusive_addr(void* p_node, uint32_t addr);
 extern int target_mprotect(abi_ulong, abi_ulong, int);
-void HELPER(pf_llsc_add)(uint32_t addr, uint64_t node_addr)
+void HELPER(mpk_llsc_add)(uint32_t addr, uint32_t tid)
 {
 	target_ulong page_addr = addr & 0xfffff000;
-    //fprintf(stderr, "[pf_llsc_add]\taddr = %x, node_addr = %lx\n", page_addr, node_addr);
-	x_monitor_set_exclusive_addr((void*)node_addr, addr);
-	target_mprotect(page_addr, 0x1000, PROT_READ);
+    // fprintf(stderr, "[pf_llsc_add]\taddr = %x, node_addr = %lx\n", page_addr, node_addr);
+    //用一个链表串起来即可
+	x_monitor_set_exclusive_addr(tid, addr);
+    add_pku_protect(tid, addr);
+    //wait for count == tcount
+    // env_archcpu->pkey = 0;
+    // env_cpu->pkey = 0;
+    //替换成pkey_mprotect
+    //pkey_mprotect用于关联
+    // pkey_mprotect(page_addr, 0x1000, PROT_READ | PROT_WRITE, pkey);
+    target_mprotect(page_addr, 0x1000, PROT_READ);
+}
+
+void HELPER(mpk_llsc_remove)(uint32_t addr, uint32_t tid)
+{
+    remove_pku_protect(tid, addr);
+}
+
+extern bool find_key_in_global2(unsigned addr, uint32_t tid);
+extern __thread CPUState *thread_cpu;
+
+void HELPER(mpk_llsc_checkflag)(uint32_t addr, uint32_t tid)
+{
+    if(!find_key_in_global2(addr))
+    {
+        CPUArchState *env = thread_cpu->env_ptr;
+        CPUState *cpu = env_cpu(env);
+        if((CPUARMState *)cpu->exclusive_addr == addr){
+            (CPUARMState *)cpu->exclusive_addr = 0;
+        }
+    }
 }

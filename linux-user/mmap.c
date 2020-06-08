@@ -19,6 +19,7 @@
 #include "qemu/osdep.h"
 
 #include "qemu.h"
+#include "pku.h"
 
 //#define DEBUG_MMAP
 
@@ -766,4 +767,358 @@ abi_long target_mremap(abi_ulong old_addr, abi_ulong old_size,
     tb_invalidate_phys_range(new_addr, new_addr + new_size);
     mmap_unlock();
     return new_addr;
+}
+
+
+#include <stdio.h>
+#include <stdlib.h>
+
+pthread_mutex_t m_global = PTHREAD_MUTEX_INITIALIZER;
+pku_global *pku_table = NULL;
+pku_thread pku_thread_table[1024];
+
+void print_global()
+{
+	pku_global* temp = pku_table;
+	while(temp)
+	{
+		fprintf(stderr, "%d->%x\n", temp->tid, temp->addr);
+		temp = temp->next;
+	}
+}
+
+#define MASK 0xfffff000
+extern int thread_count;
+void add_pku_protect(unsigned tid, unsigned addr)
+{
+	pku_global *temp = malloc(sizeof(pku_global));
+	memset(temp, 0, sizeof(pku_global));
+	temp->tid = tid;
+	temp->addr = addr;
+#ifdef MPK_DEBUG
+	fprintf(stderr, "[add_pku_protect]%d add %x\n", tid, addr);
+#endif
+	pthread_mutex_lock(&m_global);
+	if (pku_table)
+	{
+		temp->next = pku_table;
+		pku_table = temp;
+	}
+	else
+	{
+		temp->next = NULL;
+		pku_table = temp;
+	}
+	pthread_mutex_unlock(&m_global);
+	while(temp->protected_count < thread_count - 1)
+	{
+		//fprintf(stderr, "needed %d now is %d\n", thread_count - 1, temp->protected_count);
+		check_and_remove(tid);
+		check_and_protect(tid);	
+	}
+}
+
+bool remove_pku_protect(unsigned tid, unsigned addr)
+{
+#ifdef MPK_DEBUG
+	fprintf(stderr, "%d remove %x\n", tid, addr);
+#endif
+	pthread_mutex_lock(&m_global);
+	if (!pku_table){
+		pthread_mutex_unlock(&m_global);
+		return false;
+	}
+	pku_global *temp = pku_table;
+	if (temp->tid == tid && temp->addr == addr)
+	{
+		pku_table = pku_table->next;
+		free(temp);
+		pthread_mutex_unlock(&m_global);
+		return true;
+	}
+	while (temp->next != NULL)
+	{
+		if (temp->next->tid == tid && temp->next->addr == addr)
+		{
+			pku_global *delpages = temp->next;
+			temp->next = delpages->next;
+			free(delpages);
+			pthread_mutex_unlock(&m_global);
+			return true;
+		}
+		temp = temp->next;
+	}
+	pthread_mutex_unlock(&m_global);
+	return false;
+}
+
+bool check_pku(unsigned tid, unsigned addr)
+{
+	if (!pku_table)
+		return false;
+	pthread_mutex_lock(&m_global);
+	pku_global *temp = pku_table;
+	if (temp->tid != tid && temp->addr == addr)
+	{
+		pku_table = pku_table->next;
+		free(temp);
+		pthread_mutex_unlock(&m_global);
+		return true;
+	}
+	while (temp->next != NULL)
+	{
+		if (temp->next->tid != tid && temp->next->addr == addr)
+		{
+			pku_global *delpages = temp->next;
+			temp->next = delpages->next;
+			free(delpages);
+			pthread_mutex_unlock(&m_global);
+			return true;
+		}
+		temp = temp->next;
+	}
+	pthread_mutex_unlock(&m_global);
+	return false;
+}
+
+bool kflag = false;
+unsigned find_key_thread(unsigned tid, unsigned addr)
+{
+	pku_thread thread_table = pku_thread_table[tid % 1024];
+	if (tid != thread_table.tid)
+	{
+		if (thread_table.tid)
+		{
+			fprintf(stderr, "hash conflict\n");
+			exit(-1);
+		}
+		fprintf(stderr, "tid : %d\n", tid);
+		return -1;
+	}
+	pkey_entry *temp = thread_table.head;
+	unsigned page_addr = addr & MASK;
+	if(!kflag)
+		print_local(tid);
+	kflag = true;
+	while (temp)
+	{
+		if (temp->page_addr == page_addr)
+		{
+			return temp->pkey;
+		}
+		temp = temp->next;
+	}
+	return -1;
+
+}
+
+void clean_all_pkeys(unsigned tid)
+{
+	fprintf(stderr, "clear all keys : %d\n", tid);
+	pku_thread thread_table = pku_thread_table[tid % 1024];
+	if (tid != thread_table.tid)
+	{
+		if (thread_table.tid)
+		{
+			fprintf(stderr, "hash conflict\n");
+			exit(-1);
+		}
+		return;
+	}
+	pkey_entry *temp = thread_table.head;
+	pkey_entry *del = NULL;
+	int ret;
+	while (temp != NULL)
+	{
+		del = temp;
+		ret = pkey_free(del->pkey);
+		if(ret)
+			fprintf(stderr, "pkey_free error\n");
+		temp = temp->next;
+		free(del);
+	}
+	pku_thread_table[tid % 1024].head = pku_thread_table[tid % 1024].tid = 0;
+}
+
+bool find_key_in_global(unsigned addr)
+{
+	pthread_mutex_lock(&m_global);
+	pku_global *temp = pku_table;
+	unsigned page_addr = temp->addr & MASK;
+	while (temp)
+	{
+		if (page_addr == addr)
+		{
+			pthread_mutex_unlock(&m_global);
+			return true;
+		}
+		temp = temp->next;
+	}
+	pthread_mutex_unlock(&m_global);
+	return false;
+}
+
+bool find_key_in_global2(unsigned addr, unsigned tid)
+{
+	pthread_mutex_lock(&m_global);
+	pku_global *temp = pku_table;
+	while (temp)
+	{
+		if (temp->addr == addr && temp->tid == tid)
+		{
+			pthread_mutex_unlock(&m_global);
+			return true;
+		}
+		temp = temp->next;
+	}
+	pthread_mutex_unlock(&m_global);
+	return false;
+}
+
+void check_and_remove(unsigned tid)
+{
+	pku_thread thread_table = pku_thread_table[tid % 1024];
+	if (tid != thread_table.tid)
+	{
+		if (thread_table.tid)
+		{
+			fprintf(stderr, "hash conflict\n");
+			exit(-1);
+		}
+		return;
+	}
+
+	pkey_entry *temp = thread_table.head;
+	if (!temp)
+		return;
+	int ret;
+	while (temp->next)
+	{
+		if (!find_key_in_global(temp->next->page_addr))
+		{
+			pkey_entry *del_entry = temp->next;
+			fprintf(stderr, "remove pkey %d -> %x\n", tid, del_entry->page_addr);
+			temp->next = del_entry->next;
+			pkey_set(del_entry->pkey, 0, 0);
+			ret = pkey_free(del_entry->pkey);
+			if(ret)
+				fprintf(stderr, "pkey_free error\n");
+			free(del_entry);
+		}
+		temp = temp->next;
+	}
+	temp = thread_table.head;
+	if (!find_key_in_global(temp->page_addr))
+	{
+		pkey_entry *del_entry = temp;
+		fprintf(stderr, "remove pkey %d -> %x\n", tid, del_entry->page_addr);
+		pku_thread_table[tid % 1024].head = pku_thread_table[tid % 1024].head->next;
+		pkey_set(del_entry->pkey, 0, 0);
+		ret = pkey_free(del_entry->pkey);
+		if(ret)
+			fprintf(stderr, "pkey_free error\n");
+		free(del_entry);
+	}
+}
+
+bool find_key_in_local(unsigned tid, unsigned addr)
+{
+	pku_thread thread_table = pku_thread_table[tid % 1024];
+	if (tid != thread_table.tid)
+	{
+		if (thread_table.tid)
+		{
+			fprintf(stderr, "hash conflict\n");
+			exit(-1);
+		}
+		return false;
+	}
+	pkey_entry *temp = thread_table.head;
+	unsigned page_addr = addr & MASK;
+	while (temp)
+	{
+		if (temp->page_addr == page_addr)
+		{
+			return true;
+		}
+		temp = temp->next;
+	}
+	return false;
+}
+
+
+void protect(unsigned tid, unsigned addr)
+{
+	pku_thread *thread_table = &pku_thread_table[tid % 1024];
+	if (thread_table->tid != tid)
+	{
+		if (thread_table->tid)
+		{
+			fprintf(stderr, "hash conflict\n");
+			exit(-1);
+		}
+		thread_table->tid = tid;
+		thread_table->head = NULL;
+	}
+	pkey_entry *temp = malloc(sizeof(pkey_entry));
+	memset(temp, 0, sizeof(pkey_entry));
+	temp->page_addr = addr & MASK;
+	temp->pkey = pkey_alloc();
+	if(temp->pkey <=0)
+	{
+		fprintf(stderr, "pkey alloc error, eno: %d\n", temp->pkey);
+		exit(-1);
+	}
+	pkey_set(temp->pkey, PKEY_DISABLE_WRITE, 0);
+	int ret = pkey_mprotect(g2h(addr), 0x1000, PROT_READ | PROT_WRITE, temp->pkey);
+	fprintf(stderr, "%d protect %x\tret:%d\n", tid, addr, ret);
+	temp->next = thread_table->head;
+	thread_table->head = temp;
+	print_local(tid);
+}
+
+void print_local(unsigned tid)
+{
+	fprintf(stderr, "[print_local]:%d\n", tid);
+	pku_thread thread_table = pku_thread_table[tid %1024];
+	if(thread_table.tid != tid)
+	{
+		if(thread_table.tid){
+			fprintf(stderr, "hash conflict\n");
+			exit(-1);
+		}
+		return;
+	}
+	pkey_entry *temp = thread_table.head;
+	while(temp){
+		fprintf(stderr, "%x->", temp->page_addr);
+		temp = temp->next;
+	}
+	fprintf(stderr, "\n");
+}
+void check_and_protect(unsigned tid)
+{
+	pthread_mutex_lock(&m_global);
+	pku_global *temp = pku_table;
+#ifdef MPK_DEBUG
+	fprintf(stderr, "[check and protect]: %d\n", tid);
+	print_global();
+#endif
+	while (temp != NULL)
+	{
+		if (!find_key_in_local(temp->tid, temp->addr & MASK))
+		{
+			protect(tid, temp->addr & MASK);
+			temp->protected_count++;
+#ifdef MPK_DEBUG
+			fprintf(stderr, "%d protect %x\n", temp->tid, temp->addr);
+#endif
+		}
+		temp = temp->next;
+	}
+	pthread_mutex_unlock(&m_global);
+#ifdef MPK_DEBUG
+	fprintf(stderr, "[after local]: %d\n", tid);
+	print_local(tid);
+#endif
 }

@@ -72,7 +72,7 @@ x_node* exclusive_monitor_head = &exclusive_monitor;
 void* x_monitor_register_thread(int tid);
 void x_monitor_show(const char *info);
 int x_monitor_unregister_thread(int tid);
-int x_monitor_set_exclusive_addr(void* p_node, uint32_t addr);
+int x_monitor_set_exclusive_addr(uint32_t tid, uint32_t addr);
 int x_monitor_check_and_clean(int tid, uint32_t addr);
 int x_monitor_check_exclusive(void* p_node, uint32_t addr);
 
@@ -177,19 +177,25 @@ int x_monitor_unregister_thread(int tid)
 	pthread_mutex_unlock(&x_mon_mutex);
 	return ret;
 }
-int x_monitor_set_exclusive_addr(void* p_node, uint32_t addr)
+
+#define MAX_THREADS 32
+int exclusive_addrs[MAX_THREADS] = {0};
+
+int x_monitor_set_exclusive_addr(uint32_t tid, uint32_t addr)
 {
-	pthread_mutex_lock(&x_mon_mutex);
-#ifdef X_LOG
-	fprintf(stderr, "[x_monitor_set_exclusive_addr]\tp_node %p, addr %x\n", p_node, addr);
-#endif
-	x_node *p = (x_node*)p_node;
-	p->exclusive_addr = addr;
-	p->page_addr = addr & PAGE_MASK;
-#ifdef X_LOG
-	x_monitor_show("set x addr");
-#endif
-	pthread_mutex_unlock(&x_mon_mutex);
+//总不会有相同的线程号吧
+    exclusive_addrs[tid % 32] = addr & PAGE_MASK;
+//     pthread_mutex_lock(&x_mon_mutex);
+// #ifdef X_LOG
+// 	fprintf(stderr, "[x_monitor_set_exclusive_addr]\tp_node %p, addr %x\n", p_node, addr);
+// #endif
+// 	x_node *p = (x_node*)p_node;
+// 	p->exclusive_addr = addr;
+// 	p->page_addr = addr & PAGE_MASK;
+// #ifdef X_LOG
+// 	x_monitor_show("set x addr");
+// #endif
+// 	pthread_mutex_unlock(&x_mon_mutex);
 	return 0;
 }
 int x_monitor_check_exclusive(void* p_node, uint32_t addr)
@@ -974,9 +980,10 @@ int main(int argc, char **argv, char **envp)
     task_settid(ts);
 	assert(tid != 0);
 	env->exclusive_tid = tid;
-
+    env->pkey = 0;
+    // env->pkey = pkey_alloc();
     ret = loader_exec(execfd, filename, target_argv, target_environ, regs,
-        info, &bprm);
+                      info, &bprm);
     if (ret != 0) {
         printf("Error while loading %s: %s\n", filename, strerror(-ret));
         _exit(EXIT_FAILURE);

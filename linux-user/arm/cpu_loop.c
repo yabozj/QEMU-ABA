@@ -22,6 +22,7 @@
 #include "qemu.h"
 #include "elf.h"
 #include "cpu_loop-common.h"
+#include "linux-user/pku.h"
 
 #define get_user_code_u32(x, gaddr, env)                \
     ({ abi_long __r = get_user_u32((x), (gaddr));       \
@@ -277,7 +278,7 @@ static int do_strex(CPUARMState *env)
     assert(extract64(env->exclusive_addr, 32, 32) == 0);
     addr = env->exclusive_addr;
 #ifdef PF_LLSC
-	target_ulong page_addr = addr & 0xfffff000;
+	uint32_t page_addr = addr & 0xfffff000;
 	target_mprotect(page_addr, 0x1000, PROT_READ|PROT_WRITE);
 	if (x_monitor_check_exclusive((void*)env->exclusive_node, addr) != 1) {
 #ifdef LLSC_LOG
@@ -286,19 +287,7 @@ static int do_strex(CPUARMState *env)
 		goto fail;
 	}
 #endif
-#ifdef HASH_LLSC
-	hash_addr = (addr & 0x0fffffff) | 0xa0000000;
-	segv = get_user_u32(hash_entry, hash_addr);
-	assert(segv == 0);
-	if (hash_entry != env->exclusive_tid) {
 
-#ifdef LLSC_LOG
-		fprintf(stderr, "thread %d strex fail! val %lx, oldval %lx, hash_entry %x, addr %x\n", env->exclusive_tid, val, env->exclusive_val, hash_entry, addr);
-#endif
-        goto fail;
-    }
-
-#endif
 	
     size = env->exclusive_info & 0xf;
     switch (size) {
@@ -377,6 +366,18 @@ done:
     return segv;
 }
 
+static inline void pku_work()
+{
+    uint32_t tid = sys_gettid();
+    check_and_remove(tid);
+    check_and_protect(tid);
+}
+
+void clear_exclusive(CPUARMState *env)
+{
+    env->exclusive_addr = 0;
+}
+
 void cpu_loop(CPUARMState *env)
 {
     CPUState *cs = env_cpu(env);
@@ -391,8 +392,9 @@ void cpu_loop(CPUARMState *env)
         trapnr = cpu_exec(cs);
         cpu_exec_end(cs);
         process_queued_cpu_work(cs);
-
-        switch(trapnr) {
+        pku_work();
+        switch (trapnr)
+        {
         case EXCP_UDEF:
         case EXCP_NOCP:
         case EXCP_INVSTATE:

@@ -22,6 +22,7 @@
 #include <sys/resource.h>
 
 #include "qemu.h"
+#include "linux-user/pku.h"
 #include "trace.h"
 #include "signal-common.h"
 
@@ -654,6 +655,8 @@ static inline void rewind_if_in_safe_syscall(void *puc)
 extern void cpu_exec_step_atomic_pf(CPUState *cpu);
 extern int x_monitor_check_and_clean(int tid, uint32_t addr);
 
+int counter = 0;
+//#define PF_LOG
 static int pf_llsc_segfault_handler(int host_signum, siginfo_t *pinfo, void *puc)
 {
     siginfo_t *info = pinfo;
@@ -666,22 +669,31 @@ static int pf_llsc_segfault_handler(int host_signum, siginfo_t *pinfo, void *puc
 	assert(is_write == 1);
     CPUArchState *env = thread_cpu->env_ptr;
     CPUState *cpu = env_cpu(env);
-#ifdef PF_LOG
-	fprintf(stderr, "[pf_llsc_segfault_handler]\tthread %d tguest addr is %p, host_addr is %p, perm %d\n", ((CPUARMState*)env)->exclusive_tid, (void *)guest_addr, (void*)host_addr, is_write);
-#endif
+	if(counter ==0)
+	{
+		fprintf(stderr, "this is thread %d\n", gettid());
+		fprintf(stderr, "[pf_llsc_segfault_handler]\tthread %d tguest addr is %p, host_addr is %p, perm %d\n", ((CPUARMState*)env)->exclusive_tid, (void *)guest_addr, (void*)host_addr, is_write);
+		counter = 1;
+		print_local(((CPUARMState*)env)->exclusive_tid, guest_addr);
+	}
 	//cpu_exec_end(cpu);
 	//start_exclusive();
 	//fprintf(stderr, "[pf_llsc_segfault_handler]\ti am in.\n");
-	target_mprotect(page_addr, 0x1000, PROT_READ | PROT_WRITE);
+	//target_mprotect(page_addr, 0x1000, PROT_READ | PROT_WRITE);
     //cpu_exec_step_atomic_pf(cpu);
-	int x_count = x_monitor_check_and_clean(((CPUARMState*)cpu)->exclusive_tid, guest_addr);
-	if (x_count > 0) {
-		target_mprotect(page_addr, 0x1000, PROT_READ);
-	}
-	//end_exclusive();
+	//int x_count = x_monitor_check_and_clean(((CPUARMState*)cpu)->exclusive_tid, guest_addr);
+	//if (x_count > 0) {
+		//target_mprotect(page_addr, 0x1000, PROT_READ);
+	//}
+	int pkey = find_key_thread(((CPUARMState *)env)->exclusive_tid, guest_addr);
+	//fprintf(stderr, "%d free key %d\n", ((CPUARMState *)env)->exclusive_tid, pkey);
+	pkey_set(pkey, 0, 0);
+	pkey_free(pkey);
+	check_pku(((CPUARMState *)env)->exclusive_tid, guest_addr);
 	//cpu_exec_start(cpu);
     return 0;
 }
+
 #endif
 
 
