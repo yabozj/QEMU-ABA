@@ -19,7 +19,6 @@
 #include "qemu/osdep.h"
 
 #include "qemu.h"
-#include "pku.h"
 
 //#define DEBUG_MMAP
 
@@ -772,6 +771,115 @@ abi_long target_mremap(abi_ulong old_addr, abi_ulong old_size,
 
 #include <stdio.h>
 #include <stdlib.h>
+#include "pku.h"
+
+struct pku_global *search(struct pku_global *pku_table, unsigned x)
+{
+    if (pku_table == NULL || pku_table->page_addr == x) //if pku_table->page_addr is x then the element is found
+        return pku_table;
+    else if (x > pku_table->page_addr) // x is greater, so we will search the right subtree
+        return search(pku_table->right_child, x);
+    else //x is smaller than the page_addr, so we will search the left subtree
+        return search(pku_table->left_child, x);
+}
+
+//function to find the minimum value in a pku_global
+struct pku_global *find_minimum(struct pku_global *pku_table)
+{
+    if (pku_table == NULL)
+        return NULL;
+    else if (pku_table->left_child != NULL)         // pku_global with minimum value will have no left child
+        return find_minimum(pku_table->left_child); // left most element will be minimum
+    return pku_table;
+}
+
+//function to create a pku_global
+struct pku_global *new_pku_global(unsigned x, unsigned tid)
+{
+    struct pku_global *p;
+    p = malloc(sizeof(struct pku_global));
+    memset(p, 0, sizeof(pku_global));
+    p->page_addr = x;
+    p->tid = tid;
+    p->left_child = NULL;
+    p->right_child = NULL;
+    return p;
+}
+
+struct pku_global *insert(struct pku_global *pku_table, pku_global *new_node)
+{
+    //searching for the place to insert
+    if (pku_table == NULL)
+        return new_node;
+    else if (new_node->page_addr > pku_table->page_addr) // x is greater. Should be inserted to right
+        pku_table->right_child = insert(pku_table->right_child, new_node);
+    else // x is smaller should be inserted to left
+        pku_table->left_child = insert(pku_table->left_child, new_node);
+    return pku_table;
+}
+
+// funnction to delete a pku_global
+struct pku_global *delete (struct pku_global *pku_table, unsigned x)
+{
+    //searching for the item to be deleted
+    if (pku_table == NULL)
+        return NULL;
+    if (x > pku_table->page_addr)
+        pku_table->right_child = delete (pku_table->right_child, x);
+    else if (x < pku_table->page_addr)
+        pku_table->left_child = delete (pku_table->left_child, x);
+    else
+    {
+        //No Children
+        if (pku_table->left_child == NULL && pku_table->right_child == NULL)
+        {
+            free(pku_table);
+            return NULL;
+        }
+
+        //One Child
+        else if (pku_table->left_child == NULL || pku_table->right_child == NULL)
+        {
+            struct pku_global *temp;
+            if (pku_table->left_child == NULL)
+                temp = pku_table->right_child;
+            else
+                temp = pku_table->left_child;
+            free(pku_table);
+            return temp;
+        }
+
+        //Two Children
+        else
+        {
+            struct pku_global *temp = find_minimum(pku_table->right_child);
+            pku_table->page_addr = temp->page_addr;
+            pku_table->right_child = delete (pku_table->right_child, temp->page_addr);
+        }
+    }
+    return pku_table;
+}
+
+void inorder(struct pku_global *pku_table)
+{
+    if (pku_table != NULL) // checking if the pku_table is not null
+    {
+        inorder(pku_table->left_child);                            // visiting left child
+        printf(" %d ", pku_table->page_addr, pku_table->tid); // prunsigneding page_addr at pku_table
+        inorder(pku_table->right_child);                           // visiting right child
+    }
+}
+
+void inorder_clear(struct pku_global *pku_table)
+{
+    if (pku_table != NULL) // checking if the pku_table is not null
+    {
+        inorder(pku_table->left_child); // visiting left child
+        pkey_set(pku_table->pkey, 0, 0);
+        pkey_free(pku_table->pkey);
+        inorder(pku_table->right_child); // visiting right child
+    }
+}
 
 pthread_mutex_t m_global = PTHREAD_MUTEX_INITIALIZER;
 pku_global *pku_table = NULL;
@@ -779,346 +887,153 @@ pku_thread pku_thread_table[1024];
 
 void print_global()
 {
-	pku_global* temp = pku_table;
-	while(temp)
-	{
-		fprintf(stderr, "%d->%x\n", temp->tid, temp->addr);
-		temp = temp->next;
-	}
+    inorder(pku_table);
 }
 
 #define MASK 0xfffff000
 extern int thread_count;
-void add_pku_protect(unsigned tid, unsigned addr)
+
+void add_pku_protect(unsigned addr, unsigned tid)
 {
-	pku_global *temp = malloc(sizeof(pku_global));
-	memset(temp, 0, sizeof(pku_global));
-	temp->tid = tid;
-	temp->addr = addr;
-#ifdef MPK_DEBUG
-	fprintf(stderr, "[add_pku_protect]%d add %x\n", tid, addr);
-#endif
-	pthread_mutex_lock(&m_global);
-	if (pku_table)
-	{
-		temp->next = pku_table;
-		pku_table = temp;
-	}
-	else
-	{
-		temp->next = NULL;
-		pku_table = temp;
-	}
-	pthread_mutex_unlock(&m_global);
-	while(temp->protected_count < thread_count - 1)
-	{
-		//fprintf(stderr, "needed %d now is %d\n", thread_count - 1, temp->protected_count);
-		check_and_remove(tid);
-		check_and_protect(tid);	
-	}
+    pku_global *new_node = new_pku_global(addr & MASK, tid);
+    pthread_mutex_lock(&m_global);
+    if (search(pku_table, addr & MASK))
+    {
+        fprintf(stderr, "error: ll area conflict\n");
+        exit(-1);
+    }
+    insert(pku_table, new_node);
+    pthread_mutex_unlock(&m_global);
+    //如果别人也锁了这个区域怎么办呢
+    while (new_node->protected_counter < thread_count - 1)
+    {
+        //fprintf(stderr, "needed %d now is %d\n", thread_count - 1, temp->protected_count);
+        check_and_remove(tid);
+        check_and_protect(tid);
+    }
 }
 
-bool remove_pku_protect(unsigned tid, unsigned addr)
+bool remove_pku_protect(unsigned addr, unsigned tid)
 {
 #ifdef MPK_DEBUG
-	fprintf(stderr, "%d remove %x\n", tid, addr);
+    fprintf(stderr, "%d remove %x\n", tid, addr);
 #endif
-	pthread_mutex_lock(&m_global);
-	if (!pku_table){
-		pthread_mutex_unlock(&m_global);
-		return false;
-	}
-	pku_global *temp = pku_table;
-	if (temp->tid == tid && temp->addr == addr)
-	{
-		pku_table = pku_table->next;
-		free(temp);
-		pthread_mutex_unlock(&m_global);
-		return true;
-	}
-	while (temp->next != NULL)
-	{
-		if (temp->next->tid == tid && temp->next->addr == addr)
-		{
-			pku_global *delpages = temp->next;
-			temp->next = delpages->next;
-			free(delpages);
-			pthread_mutex_unlock(&m_global);
-			return true;
-		}
-		temp = temp->next;
-	}
-	pthread_mutex_unlock(&m_global);
-	return false;
-}
-
-bool check_pku(unsigned tid, unsigned addr)
-{
-	if (!pku_table)
-		return false;
-	pthread_mutex_lock(&m_global);
-	pku_global *temp = pku_table;
-	if (temp->tid != tid && temp->addr == addr)
-	{
-		pku_table = pku_table->next;
-		free(temp);
-		pthread_mutex_unlock(&m_global);
-		return true;
-	}
-	while (temp->next != NULL)
-	{
-		if (temp->next->tid != tid && temp->next->addr == addr)
-		{
-			pku_global *delpages = temp->next;
-			temp->next = delpages->next;
-			free(delpages);
-			pthread_mutex_unlock(&m_global);
-			return true;
-		}
-		temp = temp->next;
-	}
-	pthread_mutex_unlock(&m_global);
-	return false;
-}
-
-bool kflag = false;
-unsigned find_key_thread(unsigned tid, unsigned addr)
-{
-	pku_thread thread_table = pku_thread_table[tid % 1024];
-	if (tid != thread_table.tid)
-	{
-		if (thread_table.tid)
-		{
-			fprintf(stderr, "hash conflict\n");
-			exit(-1);
-		}
-		fprintf(stderr, "tid : %d\n", tid);
-		return -1;
-	}
-	pkey_entry *temp = thread_table.head;
-	unsigned page_addr = addr & MASK;
-	if(!kflag)
-		print_local(tid);
-	kflag = true;
-	while (temp)
-	{
-		if (temp->page_addr == page_addr)
-		{
-			return temp->pkey;
-		}
-		temp = temp->next;
-	}
-	return -1;
-
+    pthread_mutex_lock(&m_global);
+    bool result = false;
+    if (search(pku_table, addr & MASK) != NULL)
+    {
+        delete (pku_table, addr & MASK);
+        result = true;
+    }
+    pthread_mutex_unlock(&m_global);
+    return result;
 }
 
 void clean_all_pkeys(unsigned tid)
 {
-	fprintf(stderr, "clear all keys : %d\n", tid);
-	pku_thread thread_table = pku_thread_table[tid % 1024];
-	if (tid != thread_table.tid)
-	{
-		if (thread_table.tid)
-		{
-			fprintf(stderr, "hash conflict\n");
-			exit(-1);
-		}
-		return;
-	}
-	pkey_entry *temp = thread_table.head;
-	pkey_entry *del = NULL;
-	int ret;
-	while (temp != NULL)
-	{
-		del = temp;
-		ret = pkey_free(del->pkey);
-		if(ret)
-			fprintf(stderr, "pkey_free error\n");
-		temp = temp->next;
-		free(del);
-	}
-	pku_thread_table[tid % 1024].head = pku_thread_table[tid % 1024].tid = 0;
+    fprintf(stderr, "clear all keys : %d\n", tid);
+    pku_thread thread_table = pku_thread_table[tid % 1024];
+    if (tid != thread_table.tid)
+    {
+        if (thread_table.tid)
+        {
+            fprintf(stderr, "hash conflict\n");
+            exit(-1);
+        }
+        return;
+    }
+    pku_global *temp = thread_table.node;
+    inorder_clear(temp);
+    pku_thread_table[tid % 1024].tid = 0;
+    pku_thread_table[tid % 1024].node = NULL;
 }
 
-bool find_key_in_global(unsigned addr)
+void inorder_check_remove(struct pku_global *pku_table, pku_global *node)
 {
-	pthread_mutex_lock(&m_global);
-	pku_global *temp = pku_table;
-	unsigned page_addr = temp->addr & MASK;
-	while (temp)
-	{
-		if (page_addr == addr)
-		{
-			pthread_mutex_unlock(&m_global);
-			return true;
-		}
-		temp = temp->next;
-	}
-	pthread_mutex_unlock(&m_global);
-	return false;
-}
-
-bool find_key_in_global2(unsigned addr, unsigned tid)
-{
-	pthread_mutex_lock(&m_global);
-	pku_global *temp = pku_table;
-	while (temp)
-	{
-		if (temp->addr == addr && temp->tid == tid)
-		{
-			pthread_mutex_unlock(&m_global);
-			return true;
-		}
-		temp = temp->next;
-	}
-	pthread_mutex_unlock(&m_global);
-	return false;
+    if (node != NULL) // checking if the pku_table is not null
+    {
+        inorder_check_remove(pku_table, node->left_child); // visiting left child
+        pthread_mutex_lock(&m_global);
+        if (search(pku_table, node->page_addr) == NULL)
+        {
+            delete (pku_table, node->page_addr);
+        }
+        pthread_mutex_unlock(&m_global);
+        pkey_set(node->pkey, 0, 0);
+        pkey_free(node->pkey);
+        inorder_check_remove(pku_table, node->right_child); // visiting right child
+    }
 }
 
 void check_and_remove(unsigned tid)
 {
-	pku_thread thread_table = pku_thread_table[tid % 1024];
-	if (tid != thread_table.tid)
-	{
-		if (thread_table.tid)
-		{
-			fprintf(stderr, "hash conflict\n");
-			exit(-1);
-		}
-		return;
-	}
-
-	pkey_entry *temp = thread_table.head;
-	if (!temp)
-		return;
-	int ret;
-	while (temp->next)
-	{
-		if (!find_key_in_global(temp->next->page_addr))
-		{
-			pkey_entry *del_entry = temp->next;
-			fprintf(stderr, "remove pkey %d -> %x\n", tid, del_entry->page_addr);
-			temp->next = del_entry->next;
-			pkey_set(del_entry->pkey, 0, 0);
-			ret = pkey_free(del_entry->pkey);
-			if(ret)
-				fprintf(stderr, "pkey_free error\n");
-			free(del_entry);
-		}
-		temp = temp->next;
-	}
-	temp = thread_table.head;
-	if (!find_key_in_global(temp->page_addr))
-	{
-		pkey_entry *del_entry = temp;
-		fprintf(stderr, "remove pkey %d -> %x\n", tid, del_entry->page_addr);
-		pku_thread_table[tid % 1024].head = pku_thread_table[tid % 1024].head->next;
-		pkey_set(del_entry->pkey, 0, 0);
-		ret = pkey_free(del_entry->pkey);
-		if(ret)
-			fprintf(stderr, "pkey_free error\n");
-		free(del_entry);
-	}
+    pku_thread *thread_table = &pku_thread_table[tid % 1024];
+    if (tid != thread_table->tid)
+    {
+        if (thread_table->tid)
+        {
+            fprintf(stderr, "hash conflict\n");
+            exit(-1);
+        }
+        return;
+    }
+    inorder_check_remove(thread_table->node, thread_table->node);
 }
 
-bool find_key_in_local(unsigned tid, unsigned addr)
+void protect(unsigned addr, unsigned tid)
 {
-	pku_thread thread_table = pku_thread_table[tid % 1024];
-	if (tid != thread_table.tid)
-	{
-		if (thread_table.tid)
-		{
-			fprintf(stderr, "hash conflict\n");
-			exit(-1);
-		}
-		return false;
-	}
-	pkey_entry *temp = thread_table.head;
-	unsigned page_addr = addr & MASK;
-	while (temp)
-	{
-		if (temp->page_addr == page_addr)
-		{
-			return true;
-		}
-		temp = temp->next;
-	}
-	return false;
+    pthread_mutex_unlock(&m_global);
+    pku_thread *thread_table = &pku_thread_table[tid % 1024];
+    if (thread_table->tid != tid)
+    {
+        if (thread_table->tid)
+        {
+            fprintf(stderr, "hash conflict\n");
+            exit(-1);
+        }
+        thread_table->tid = tid;
+        thread_table->node = NULL;
+    }
+    if (search(thread_table->node, addr) != NULL)
+    {
+        return;
+    }
+    pku_global *temp = new_pku_global(addr & MASK, tid);
+    temp->pkey = pkey_alloc();
+    if (temp->pkey <= 0)
+    {
+        fprintf(stderr, "pkey alloc error, eno: %d\n", temp->pkey);
+        exit(-1);
+    }
+    pkey_set(temp->pkey, PKEY_DISABLE_WRITE, 0);
+    int ret = pkey_mprotect(g2h(addr), 0x1000, PROT_READ | PROT_WRITE, temp->pkey);
+    if (ret < 0)
+    {
+        fprintf(stderr, "pkey_mprotect error\n");
+        exit(-1);
+    }
+    thread_table->node = insert(thread_table->node, temp);
 }
 
-
-void protect(unsigned tid, unsigned addr)
+void inorder_check_protect(pku_global *node, unsigned tid)
 {
-	pku_thread *thread_table = &pku_thread_table[tid % 1024];
-	if (thread_table->tid != tid)
-	{
-		if (thread_table->tid)
-		{
-			fprintf(stderr, "hash conflict\n");
-			exit(-1);
-		}
-		thread_table->tid = tid;
-		thread_table->head = NULL;
-	}
-	pkey_entry *temp = malloc(sizeof(pkey_entry));
-	memset(temp, 0, sizeof(pkey_entry));
-	temp->page_addr = addr & MASK;
-	temp->pkey = pkey_alloc();
-	if(temp->pkey <=0)
-	{
-		fprintf(stderr, "pkey alloc error, eno: %d\n", temp->pkey);
-		exit(-1);
-	}
-	pkey_set(temp->pkey, PKEY_DISABLE_WRITE, 0);
-	int ret = pkey_mprotect(g2h(addr), 0x1000, PROT_READ | PROT_WRITE, temp->pkey);
-	fprintf(stderr, "%d protect %x\tret:%d\n", tid, addr, ret);
-	temp->next = thread_table->head;
-	thread_table->head = temp;
-	print_local(tid);
+    if (node != NULL) // checking if the pku_table is not null
+    {
+        inorder_check_protect(node->left_child, tid); // visiting left child
+        protect(node->page_addr, tid);
+        inorder_check_protect(node->right_child, tid); // visiting right child
+    }
 }
 
-void print_local(unsigned tid)
-{
-	fprintf(stderr, "[print_local]:%d\n", tid);
-	pku_thread thread_table = pku_thread_table[tid %1024];
-	if(thread_table.tid != tid)
-	{
-		if(thread_table.tid){
-			fprintf(stderr, "hash conflict\n");
-			exit(-1);
-		}
-		return;
-	}
-	pkey_entry *temp = thread_table.head;
-	while(temp){
-		fprintf(stderr, "%x->", temp->page_addr);
-		temp = temp->next;
-	}
-	fprintf(stderr, "\n");
-}
 void check_and_protect(unsigned tid)
 {
-	pthread_mutex_lock(&m_global);
-	pku_global *temp = pku_table;
+    pthread_mutex_lock(&m_global);
+    pku_global *temp = pku_table;
 #ifdef MPK_DEBUG
-	fprintf(stderr, "[check and protect]: %d\n", tid);
-	print_global();
+    fprintf(stderr, "[check and protect]: %d\n", tid);
+    print_global();
 #endif
-	while (temp != NULL)
-	{
-		if (!find_key_in_local(temp->tid, temp->addr & MASK))
-		{
-			protect(tid, temp->addr & MASK);
-			temp->protected_count++;
-#ifdef MPK_DEBUG
-			fprintf(stderr, "%d protect %x\n", temp->tid, temp->addr);
-#endif
-		}
-		temp = temp->next;
-	}
-	pthread_mutex_unlock(&m_global);
-#ifdef MPK_DEBUG
-	fprintf(stderr, "[after local]: %d\n", tid);
-	print_local(tid);
-#endif
+    pthread_mutex_lock(&m_global);
+    inorder_check_protect(pku_table, tid);
+    pthread_mutex_unlock(&m_global);
 }
